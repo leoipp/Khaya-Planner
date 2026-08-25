@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.claude/
+
+# projetos e dados de teste (não são código-fonte)
+*.mogno
+*.xlsx
+*.xls
