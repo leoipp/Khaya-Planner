@@ -142,5 +142,8 @@ O projeto separa interface e regras de negócio: componentes Qt ficam em `app/sc
 python -m compileall main.py app
 ```
 
-Atualmente o repositório não inclui uma suíte automatizada de testes nem um arquivo de licença. Antes de distribuir o software ou aceitar contribuições externas, recomenda-se definir a licença e adicionar testes para os fluxos críticos de simulação e persistência.
+Atualmente o repositório não inclui uma suíte automatizada de testes. Recomenda-se adicionar testes para os fluxos críticos de simulação e persistência.
 
+## Licença
+
+Este projeto é distribuído sob a licença MIT. Consulte o arquivo [`LICENSE`](LICENSE) para conhecer os termos.
