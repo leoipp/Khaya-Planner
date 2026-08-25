@@ -146,4 +146,4 @@ Atualmente o repositório não inclui uma suíte automatizada de testes. Recomen
 
 ## Licença
 
-Este projeto é distribuído sob a licença MIT. Consulte o arquivo [`LICENSE`](LICENSE) para conhecer os termos.
+Este projeto é distribuído sob a GNU General Public License v3.0 (GPL-3.0). Consulte o arquivo [`LICENSE`](LICENSE) para conhecer os termos.
