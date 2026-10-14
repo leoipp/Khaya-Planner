@@ -19,6 +19,9 @@ A interface é desenvolvida em Python com PySide6. Os dados de cada trabalho fic
 - Ranking de cenários por KPI e por talhão.
 - Gráficos de resultados, ingressos e curvas de distribuição.
 - Resumos configuráveis e exportação de resultados para Excel ou SQLite.
+- Mapas com importação de shapefiles, join de resultados e cores por atributo.
+- Otimização do planejamento florestal em duas etapas com CPLEX.
+- Cálculos de saídas com base anterior ao manejo, mantendo a remoção da idade atual.
 - Temas claro e escuro.
 
 ## Requisitos
@@ -77,6 +80,7 @@ Na primeira abertura, use a barra lateral para criar um projeto novo ou abrir um
 
 | Tela | Finalidade |
 | --- | --- |
+| Mapa | Importar shapefiles, unir atributos da simulação e colorir por valores únicos. |
 | Modelos | Cadastrar equações, coeficientes e variáveis de entrada. |
 | Sortimentos | Definir faixas diamétricas, rendimentos e preços. |
 | Custos | Cadastrar custos de formação e operações de colheita. |
@@ -85,7 +89,80 @@ Na primeira abertura, use a barra lateral para criar um projeto novo ou abrir um
 | Construtor de Variáveis | Montar grafos de cálculo e criar colunas derivadas. |
 | Ingressos e Curvas | Analisar ingressos e curvas de distribuição. |
 | Resumos de Cenários | Agrupar, filtrar e exportar resultados consolidados. |
+| Otimização de Planejamento | Escolher cenários por talhão, regular produção e maximizar VPL com CPLEX. |
 | Configurações | Definir classes, parâmetros financeiros, comportamento da simulação e preferências. |
+
+## Organização da tela Simulação
+
+A tela separa o trabalho em três abas:
+
+- **Manejo e cenários**: escolha **Cenário único**, **Múltiplos cenários — manual** ou **Múltiplos cenários — grade automática**. O formulário mostra apenas os campos usados pelo modo escolhido. No modo manual, preencha o manejo, informe um nome e clique em **Adicionar cenário**; no automático, defina os intervalos de idades/intensidades e gere a grade.
+- **Dados e parâmetros**: mapeie as colunas da base, configure distribuição/agregação e salve os parâmetros de manejo. Os cartões se ajustam à largura da janela.
+- **Comparação**: selecione indicadores e a direção para ranquear cenários no conjunto ou por talhão.
+
+Nos múltiplos cenários, cadastro, seleção, execução do lote e exportação ficam em grupos distintos. **Gerar pendentes** processa apenas o que falta; **Regerar todos** refaz o lote; **Parar** mantém a parada entre cenários. A tabela informa a situação de cada cenário, e o cabeçalho mostra quantos estão cadastrados e gerados. Os controles de resultados e o estado da simulação permanecem no rodapé ao trocar de aba.
+
+```bash
+python -m unittest discover -s tests -p "test_simulacao_ui.py" -v
+```
+
+### Cenários sem manejo
+
+Na Simulação, cada intervenção possui uma caixa de seleção: Raleio, 1º Desbaste,
+2º Desbaste e Corte Raso. Desmarque as intervenções que não serão realizadas,
+no cenário único, no cadastro manual ou na grade automática. Desmarque todas
+para criar um cenário sem manejo. Os campos desativados preservam seus valores.
+A sequência de idades considera somente as intervenções selecionadas.
+Sem corte raso, a simulação acompanha o horizonte definido pela idade máxima
+nas Configurações. O indicador VET exige uma idade de corte raso e não se aplica
+a esse cenário.
+
+## Construtor: base anterior ao manejo
+
+Clique com o botão direito em um nó **Saída** e marque **Usar base anterior ao manejo**.
+Salve o construtor para manter a opção. O título do nó passa a indicar **base anterior**.
+
+Nas linhas de intervenção válida, essa saída recalcula todos os nós que a alimentam
+usando os campos `_atual` da idade anterior positiva do mesmo talhão e cenário.
+A idade simulada, a remoção absoluta e as demais colunas permanecem na linha atual.
+Linhas sem intervenção ou com intensidade zero mantêm a base atual. A opção exige
+o mapeamento da coluna de talhão e as colunas `idade_simulada` e `evento_manejo`.
+Sem uma linha anterior, os campos da base anterior ficam vazios; idades duplicadas
+no mesmo talhão e cenário geram erro por ambiguidade.
+
+Por exemplo, habilite a opção em **MDD DESBASTE CORRIGIDO** para projetar o cálculo
+até a idade do desbaste usando a base anterior e a remoção registrada nessa idade.
+Mantenha a opção desabilitada em **MDD REMANESCENTE CORRIGIDO**, que continua usando
+a base atual, mesmo compartilhando nós com o desbaste. Basta habilitar a saída final:
+o comportamento alcança todo o ramo e não altera os dados da tabela.
+
+## Mapas
+
+### Mapa e shapefiles
+
+A tela inicial **Mapa** exibe a camada selecionada ao lado da navegação. Crie ou abra um projeto e clique em **Importar shapefile**. Mantenha os arquivos `.shp`, `.shx` e `.dbf` na mesma pasta; `.prj` e `.cpg` são opcionais. A leitura usa [PyShp](https://github.com/GeospatialPython/pyshp).
+
+Arraste o canvas para mover o mapa, use a roda do mouse para zoom e **Enquadrar** para visualizar toda a camada. **Tabela de atributos** abre e fecha o painel inferior, cuja altura pode ser ajustada arrastando o separador. O seletor de camadas permite alternar entre os shapefiles importados.
+
+As geometrias e os atributos são incorporados ao `.mogno`, sem depender dos arquivos originais após a importação. No **Construtor de Variáveis**, selecione a tabela `shape_<nome>_<identificador>` e use **Colunas disponíveis** para adicionar atributos ao grafo. As colunas calculadas são gravadas nessa tabela e aparecem no mapa ao retornar à tela.
+
+O campo `id` é reservado à chave interna do motor. Se o shapefile tiver um campo `ID`, seu conteúdo é preservado em `atributo_id` (com sufixo adicional em caso de conflito). A camada é exibida nas coordenadas originais; esta versão não faz reprojeção nem inclui mapa de fundo.
+
+### Join com a simulação e valores únicos
+
+Para usar a mesma tabela de **Resumos de Cenários** no mapa, configure as fontes, filtros por chaves, agrupamentos, indicadores e pivô nessa tela e clique em **Disponibilizar tabela no mapa**. O resultado completo de todos os cenários gerados é salvo no projeto com o nome indicado em **Tabela no banco**. A amostra de 100 linhas e o limite de dois cenários da prévia não limitam essa tabela. O botão também atualiza a prévia com uma amostra da tabela disponibilizada.
+
+Em **Mapa → Join com cenários...**, essa tabela aparece como origem, com os mesmos valores e colunas do resumo. **Tabela de cenários e filtros...** permite consultar esse resultado e adicionar filtros antes do join. Depois de alterar as definições do resumo, clique novamente em **Disponibilizar tabela no mapa** e reaplique o join.
+
+Na tela **Simulação**, **Tabela e filtros...** abre uma consulta paginada dos resultados. Escolha a tabela e adicione condições por coluna, combinadas por **E** ou **OU**. Os operadores incluem comparação, texto, listas (separadas por `;`) e valores nulos. **Consultar** mostra o recorte; **Aplicar filtros para o join** salva as condições no projeto. A paginação de 200 linhas é apenas para visualização: o join consulta todas as linhas que atendem aos filtros.
+
+No **Mapa**, clique em **Join com cenários...**, escolha **Tabela inteira** ou **Recorte filtrado da tabela**, selecione a coluna de ligação de cada tabela e marque os atributos a trazer. Os filtros também podem ser definidos dentro desse diálogo. No modo **Texto**, zeros à esquerda são preservados; no modo **Número**, `01`, `1` e `1,0` são equivalentes.
+
+Se houver várias linhas por chave (por exemplo, várias idades ou cenários por talhão), filtre a consulta ou escolha **Primeira linha**, **Última linha**, **Soma**, **Média**, **Mínimo** ou **Máximo**. As quatro agregações exigem atributos numéricos. O padrão exige uma linha por chave para evitar uma escolha implícita.
+
+O join mantém todas as feições e grava os atributos em colunas `sim_*`; feições sem correspondência recebem valores nulos. Colunas originais são preservadas, mesmo quando seus nomes coincidem com os atributos trazidos. O resultado é uma cópia dos dados no momento da aplicação: após gerar outra simulação ou mudar o recorte, aplique o join novamente. Colunas trazidas anteriormente e desmarcadas no novo join ficam vazias, preservando as referências dos construtores salvos.
+
+Em **Valores únicos...**, escolha uma coluna original ou trazida pelo join. Ajuste as cores de cada valor, desmarque valores para usar a cor dos demais ou gere outra paleta. O mapa mostra a legenda e a quantidade de feições em cada categoria. Valores nulos aparecem como **Sem valor**. A coluna, as cores e os filtros ficam salvos dentro do `.mogno`. **Restaurar cor única** limpa a classificação da camada selecionada.
 
 ## Projetos `.mogno`
 
@@ -142,7 +219,48 @@ O projeto separa interface e regras de negócio: componentes Qt ficam em `app/sc
 python -m compileall main.py app
 ```
 
-Atualmente o repositório não inclui uma suíte automatizada de testes. Recomenda-se adicionar testes para os fluxos críticos de simulação e persistência.
+Para executar toda a suíte de testes:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Os testes incluem simulação, manejos opcionais, saídas com base anterior,
+resumos, mapas e planejamento. Testes que dependem do solver real são pulados
+quando o executável CPLEX não está disponível no PATH.
+
+Os testes de integração do mapa verificam importação, atributos no construtor, gravação de colunas calculadas, reabertura do projeto e troca de projeto:
+
+```bash
+python -m unittest discover -s tests -p "test_mapa*.py" -v
+```
+
+## Otimização de Planejamento (CPLEX)
+
+Em **Configurações > Parâmetros > CPLEX**, selecione o `cplex.exe` da instalação IBM ILOG CPLEX (pasta `cplex/bin/<plataforma>`) e clique em **Salvar caminho do CPLEX**. Esse caminho é uma preferência do usuário/máquina e não é transportado com o projeto. A integração usa o executável local, sem exigir `docplex` ou o módulo Python `cplex` no ambiente do aplicativo.
+
+Na tela **Otimização de Planejamento**:
+
+1. Escolha o SQLite exportado pelos Resumos de Cenários ou use o projeto aberto, quando a tabela já estiver no projeto.
+2. Selecione a tabela e mapeie talhão, cenário, área, idade e VPL. Os volumes anuais devem estar em colunas com o nome do ano, como `2026` e `2027`.
+3. Defina horizonte, primeiro ano regulado, demanda, desvio máximo, folga, tolerância, gaps e tempos das duas etapas. Os campos de desvio/gap estão em **percentual**: o `ALPHA_MAX = 5.0` do script equivale a **500%**, e `TOL_ALPHA_NUMERICA = 1e-5` equivale a **0,001 ponto percentual**.
+4. Marque a multiplicação pela área somente se os volumes/VPL estiverem informados por hectare.
+5. Adicione limites `>=`, `<=` ou `=` para a soma de uma coluna nos cenários escolhidos. Para limitar um ano, escolha a coluna daquele ano; para limitar outro indicador, escolha sua coluna numérica. A opção por hectare multiplica esse indicador pela área. Essas restrições adicionais valem nas duas etapas; a faixa em torno da demanda vale apenas nos anos regulados.
+6. Defina um sufixo livre e clique em **Otimizar em duas etapas**. Modelos podem ser salvos/carregados em JSON pelo formulário.
+
+O modelo impõe um cenário por talhão, minimiza o maior desvio proporcional da demanda e depois maximiza o VPL na faixa encontrada, com a solução da etapa 1 como MIP start. Uma solução factível encontrada dentro do tempo limite pode ser usada mesmo sem prova de otimalidade; confira o status/gap da etapa 1 antes de interpretar o alpha como mínimo comprovado.
+
+São geradas `resultado_otimizacao_<sufixo>`, `cenarios_escolhidos_<sufixo>`, `producao_anual_<sufixo>`, `resumo_otimizacao_<sufixo>`, `etapas_otimizacao_<sufixo>` e `diagnostico_volume_<sufixo>`. A tabela das etapas guarda status, objetivo, bound/gap quando disponíveis e o log completo do solver; o resumo guarda também a configuração utilizada. Informações não fornecidas pelo solver ficam nulas. O diagnóstico de volume usa as mesmas unidades do modelo, inclusive conversão por hectare.
+
+Os resultados são publicados juntos em uma transação e não sobrescrevem tabelas existentes: use outro sufixo para repetir uma execução. A origem permanece intacta. Em caso de inviabilidade, o refino grava `conflitos_<sufixo>` com as restrições e o detalhamento do conflito, sem publicar uma solução. A execução ocorre em segundo plano; trocar de projeto e fechar o aplicativo ficam bloqueados até o término.
+
+O intercâmbio de soluções usa o [formato SOL documentado pela IBM](https://www.ibm.com/docs/en/icos/22.1.2?topic=cplex-sol-file-format-solution-files).
+
+```bash
+python -m unittest discover -s tests -p "test_planejamento.py" -v
+```
+
+Os testes com solver real são executados quando `cplex` está no PATH; os demais validam dados, restrições, conversão de unidades e publicação atômica independentemente da instalação.
 
 ## Licença
 

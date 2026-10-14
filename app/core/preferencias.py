@@ -19,10 +19,21 @@ NOME_ARQUIVO = "preferencias.json"
 # no Construtor de Variáveis; QColor("transparent") é um nome válido do Qt
 # (alpha=0), ver app/screens/construtor_variaveis.py:_desenhar_no.
 PADRAO = {
+    "cplex_executavel": "",
     "tema": "light",
     "cor_borda_no": "transparent",
     "espessura_borda_no": 1.5,
 }
+
+
+def salvar_cplex(caminho):
+    """Executável do solver pertence à máquina, não ao projeto."""
+    destino = _caminho_preferencias()
+    dados = carregar()
+    dados['cplex_executavel'] = caminho
+    temporario = destino.with_suffix('.tmp')
+    temporario.write_text(json.dumps(dados, indent=2), encoding='utf-8')
+    os.replace(temporario, destino)
 
 
 def _caminho_preferencias():

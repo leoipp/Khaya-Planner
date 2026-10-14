@@ -26,6 +26,7 @@ from .widgets.barra_lateral import BarraLateral, BotaoAlternarBarraLateral
 from .widgets.dialogo_progresso import DialogoProgresso
 
 ITENS_NAVEGACAO = [
+    ("mapa", "Mapa"),
     ("modelos", "Modelos"),
     ("sortimentos", "Sortimentos"),
     ("custos", "Custos"),
@@ -34,6 +35,7 @@ ITENS_NAVEGACAO = [
     ("construtor_variaveis", "Construtor de Variáveis"),
     ("ingressos_curvas", "Ingressos e Curvas"),
     ("resumos_cenarios", "Resumos de Cenários"),
+    ("planejamento", "Otimização de Planejamento"),
     ("configuracoes", "Configurações"),
 ]
 
@@ -41,6 +43,7 @@ ITENS_NAVEGACAO = [
 # widgets invisíveis na abertura, adia imports pesados (matplotlib/pandas)
 # até a primeira visita à funcionalidade correspondente.
 FABRICAS_TELAS = {
+    "mapa": ("app.screens.mapa", "TelaMapa"),
     "modelos": ("app.screens.modelos", "TelaModelos"),
     "sortimentos": ("app.screens.sortimentos", "TelaSortimentos"),
     "custos": ("app.screens.custos", "TelaCustos"),
@@ -49,6 +52,7 @@ FABRICAS_TELAS = {
     "construtor_variaveis": ("app.screens.construtor_variaveis", "TelaConstrutorVariaveis"),
     "ingressos_curvas": ("app.screens.ingressos_curvas_distribuicao", "TelaIngressosCurvasDistribuicao"),
     "resumos_cenarios": ("app.screens.resumos_cenarios", "TelaResumosCenarios"),
+    "planejamento": ("app.screens.planejamento", "TelaPlanejamento"),
     "configuracoes": ("app.screens.configuracoes", "TelaConfiguracoes"),
 }
 
@@ -114,7 +118,7 @@ class JanelaPrincipal(QMainWindow):
 
         self._montar_central()
 
-        self.mostrar_tela("modelos")
+        self.mostrar_tela("mapa")
         self._atualizar_titulo()
 
     def _aplicar_icone(self):
@@ -344,6 +348,11 @@ class JanelaPrincipal(QMainWindow):
             self._revisao_telas[self._tela_atual] = core_projeto.revisao_dados()
 
     def closeEvent(self, evento):
+        planejamento = self.telas.get('planejamento')
+        if planejamento is not None and planejamento.rodando:
+            QMessageBox.information(self, "Planejamento", "Aguarde a otimização terminar antes de fechar o aplicativo.")
+            evento.ignore()
+            return
         core_projeto.fechar_projeto()
         super().closeEvent(evento)
 

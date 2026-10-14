@@ -6,3 +6,8 @@ __pycache__/
 *.mogno
 *.xlsx
 *.xls
+
+# artefatos locais de desenvolvimento e execução
+.taylor_staging/
+.ui_previews/
+*.log

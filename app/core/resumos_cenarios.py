@@ -4,6 +4,7 @@ import io
 import json
 import re
 import sqlite3
+import uuid
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -157,6 +158,24 @@ def _coluna_auxiliar(df: pd.DataFrame, base: str) -> str:
 
 def processar_cenario(conn, cenario_id: int, cfg: Dict) -> pd.DataFrame:
     df = _juntar(conn, cenario_id, cfg)
+    # Os parâmetros de remoção por etapa podem estar ausentes nas idades
+    # iniciais. Como dimensões do resumo, pertencem ao talhão/cenário,
+    # e não devem separar os anos iniciais num segundo grupo com NaN.
+    campos_manejo = [c for c in cfg.get("grupos", []) if c in df.columns
+                     and re.fullmatch(
+                         r"populacao\.(?:fustes_ha_removidos|vtcc_ha_removido)_apos_(?:raleio|desbaste_[12])", c)]
+    if campos_manejo:
+        coluna_talhao = simulacao.obter_coluna_talhao(conn)
+        chave_talhao = f"populacao.{coluna_talhao}"
+        if coluna_talhao and chave_talhao in df.columns:
+            chaves = [chave_talhao]
+            if "populacao.cenario_id" in df.columns:
+                chaves.insert(0, "populacao.cenario_id")
+            por_talhao = df.groupby(chaves, dropna=False, sort=False, observed=True)
+            for coluna in campos_manejo:
+                unico = por_talhao[coluna].transform("nunique").eq(1)
+                valor = por_talhao[coluna].transform("first")
+                df[coluna] = df[coluna].mask(df[coluna].isna() & unico, valor)
     df = _aplicar_filtro_chaves(df, cfg)
     grupos = cfg.get("grupos", [])
     if not grupos:
@@ -186,7 +205,7 @@ def processar_cenario(conn, cenario_id: int, cfg: Dict) -> pd.DataFrame:
             df[coluna_agregacao] = converter_numero(df[coluna])
         especificacao[alias] = pd.NamedAgg(column=coluna_agregacao, aggfunc=agregacao)
     if especificacao:
-        resumo = df.groupby(grupos, dropna=False, sort=False).agg(**especificacao).reset_index()
+        resumo = df.groupby(grupos, dropna=False, sort=False, observed=True).agg(**especificacao).reset_index()
         # Pós-processamento independente da agregação: permite, por exemplo,
         # calcular a média com precisão completa e só então arredondar a
         # coluna apresentada/exportada. Configurações antigas não possuem
@@ -208,10 +227,19 @@ def processar_cenario(conn, cenario_id: int, cfg: Dict) -> pd.DataFrame:
         if agregacao_pivo in _AGREGACOES_NUMERICAS:
             valor_pivo = _coluna_auxiliar(df, "__pivo_valor_numerico")
             df[valor_pivo] = converter_numero(df[pivo["valor"]])
-        tabela_pivo = pd.pivot_table(
-            df, index=grupos, columns=pivo["coluna"], values=valor_pivo,
-            aggfunc=agregacao_pivo, fill_value=pivo.get("preencher", 0),
-            dropna=False, observed=False).reset_index()
+        # pivot_table(dropna=False) expande o produto cartesiano dos níveis
+        # do índice. Dimensões contínuas de manejo podem gerar bilhões de
+        # combinações inexistentes. Agrega somente chaves observadas e abre
+        # apenas a dimensão dos cabeçalhos, preservando grupos com nulos.
+        coluna_pivo = pivo["coluna"]
+        if coluna_pivo in grupos:
+            raise ValueError("A coluna que vira cabeçalho do pivô não pode também ser uma coluna de agrupamento.")
+        tabela_pivo = (
+            df.groupby(grupos + [coluna_pivo], dropna=False, sort=False, observed=True)[valor_pivo]
+            .agg(agregacao_pivo)
+            .unstack(coluna_pivo)
+            .fillna(pivo.get("preencher", 0))
+            .reset_index())
         nomes_grupo = set(grupos)
         tabela_pivo.columns = [
             c if c in nomes_grupo else str(int(c)) if isinstance(c, (int, float, np.number))
@@ -228,12 +256,64 @@ def processar_cenario(conn, cenario_id: int, cfg: Dict) -> pd.DataFrame:
     return resumo.rename(columns=renomear)
 
 
-def processar(conn, cfg: Dict, limite_cenarios: Optional[int] = None) -> pd.DataFrame:
+def processar(conn, cfg: Dict, limite_cenarios: Optional[int] = None, progresso=None) -> pd.DataFrame:
     cenarios = cenarios_gerados(conn)
     if limite_cenarios is not None:
         cenarios = cenarios[:limite_cenarios]
-    partes = [processar_cenario(conn, cid, cfg) for cid, _nome in cenarios]
+    partes = []
+    for numero, (cid, nome) in enumerate(cenarios, 1):
+        partes.append(processar_cenario(conn, cid, cfg))
+        if progresso:
+            progresso(numero, len(cenarios), nome)
     return pd.concat(partes, ignore_index=True, sort=False) if partes else pd.DataFrame()
+
+
+def disponibilizar_no_mapa(conn, tabela: str, cfg: Dict, nome='', progresso=None) -> Dict:
+    """Incorpora o mesmo resumo completo ao projeto, sem limitar a prévia."""
+    from .camadas import identificador
+    from . import mapa_dados
+    if not re.fullmatch(r"[\wÀ-ÿ .-]+", tabela or ''):
+        raise ValueError('Nome da tabela de resumo inválido.')
+    registro_existe = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mapa_fontes_resumos'").fetchone()
+    registrada = (conn.execute('SELECT 1 FROM mapa_fontes_resumos WHERE tabela=?', (tabela,)).fetchone()
+                  if registro_existe else None)
+    if conn.execute('SELECT 1 FROM sqlite_master WHERE name=? COLLATE NOCASE', (tabela,)).fetchone() and not registrada:
+        raise ValueError('Esse nome já pertence a outra tabela do projeto. Escolha outro nome para o resumo.')
+    df = processar(conn, cfg, progresso=progresso)
+    if df.empty:
+        raise ValueError('O resumo está vazio. Revise os filtros e os cenários gerados.')
+    nomes = list(map(str, df.columns))
+    if len({c.casefold() for c in nomes}) != len(nomes):
+        raise ValueError('O resumo contém nomes de colunas repetidos. Ajuste os nomes dos indicadores.')
+    tipos = ['INTEGER' if pd.api.types.is_integer_dtype(dtype) or pd.api.types.is_bool_dtype(dtype)
+             else 'REAL' if pd.api.types.is_numeric_dtype(dtype) else 'TEXT' for dtype in df.dtypes]
+    stage = '__resumo_mapa_' + uuid.uuid4().hex
+    def adaptar(v):
+        if pd.isna(v):
+            return None
+        if hasattr(v, 'isoformat'):
+            return v.isoformat()
+        return v.item() if isinstance(v, np.generic) else v
+    conn.execute('SAVEPOINT resumo_para_mapa')
+    try:
+        conn.execute('CREATE TABLE IF NOT EXISTS mapa_fontes_resumos (tabela TEXT PRIMARY KEY, nome TEXT NOT NULL, configuracao_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)')
+        definicoes = ', '.join(f'{identificador(c)} {t}' for c, t in zip(nomes, tipos))
+        conn.execute(f'CREATE TABLE {identificador(stage)} ({definicoes})')
+        marcadores = ','.join('?' for _ in nomes)
+        conn.executemany(f'INSERT INTO {identificador(stage)} VALUES ({marcadores})',
+                         (tuple(adaptar(v) for v in linha) for linha in df.itertuples(index=False, name=None)))
+        if registrada:
+            conn.execute(f'DROP TABLE {identificador(tabela)}')
+        conn.execute(f'ALTER TABLE {identificador(stage)} RENAME TO {identificador(tabela)}')
+        conn.execute("INSERT INTO mapa_fontes_resumos VALUES (?, ?, ?, datetime('now','localtime')) ON CONFLICT(tabela) DO UPDATE SET nome=excluded.nome, configuracao_json=excluded.configuracao_json, atualizado_em=excluded.atualizado_em",
+                     (tabela, nome or tabela, json.dumps(cfg, ensure_ascii=False)))
+        mapa_dados.gravar_estado(conn, 'consulta_simulacao', dict(fonte=tabela, filtros=[], combinacao='E'))
+        conn.execute('RELEASE resumo_para_mapa')
+    except Exception:
+        conn.execute('ROLLBACK TO resumo_para_mapa')
+        conn.execute('RELEASE resumo_para_mapa')
+        raise
+    return dict(tabela=tabela, linhas=len(df), cenarios=len(cenarios_gerados(conn)))
 
 
 def exportar_sqlite(conn_origem, caminho_destino: str, tabela: str, cfg: Dict,

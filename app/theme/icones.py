@@ -20,6 +20,7 @@ from . import manager as tema
 
 # ---- navegação (barra lateral) --------------------------------------------
 _NAVEGACAO = {
+    "mapa": "map-trifold",
     "modelos": "cube",
     "sortimentos": "tree-evergreen",
     "custos": "currency-dollar",
@@ -28,6 +29,7 @@ _NAVEGACAO = {
     "construtor_variaveis": "flow-arrow",
     "ingressos_curvas": "trend-up",
     "resumos_cenarios": "database",
+    "planejamento": "chart-line",
     "configuracoes": "gear",
 }
 

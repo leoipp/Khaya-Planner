@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import ctypes
+import re
 import shutil
 import sqlite3
 import sys
@@ -142,7 +143,7 @@ CREATE TABLE IF NOT EXISTS simulacao_cenarios (
     intensidade_desbaste_1 REAL,
     idade_desbaste_2 INTEGER,
     intensidade_desbaste_2 REAL,
-    idade_corte_raso INTEGER NOT NULL,
+    idade_corte_raso INTEGER,
     status TEXT NOT NULL DEFAULT 'Pendente',
     gerado_em TEXT,
     criado_em TEXT DEFAULT (datetime('now', 'localtime'))
@@ -409,6 +410,7 @@ def inicializar_schema(caminho):
     try:
         _aplicar_pragmas_performance(conn)
         conn.executescript(SCHEMA)
+        _permitir_cenarios_sem_corte_raso(conn)
         for tabela, colunas in COLUNAS_NOVAS.items():
             _adicionar_colunas_faltantes(conn, tabela, colunas)
         for indice_sql in INDICES:
@@ -416,6 +418,47 @@ def inicializar_schema(caminho):
         conn.commit()
     finally:
         conn.close()
+
+
+def _permitir_cenarios_sem_corte_raso(conn):
+    """Remove somente NOT NULL da idade do corte em projetos existentes.
+
+    A recriação é transacional e preserva IDs, sequência, índices, gatilhos
+    e registros filhos; não renomeia a tabela antiga nem dispara cascatas.
+    """
+    colunas = conn.execute('PRAGMA table_info(simulacao_cenarios)').fetchall()
+    if not any(c[1] == 'idade_corte_raso' and c[3] for c in colunas):
+        return
+    sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='simulacao_cenarios'").fetchone()[0]
+    alterado = re.sub(r'(?i)(\bidade_corte_raso\s+INTEGER)\s+NOT\s+NULL', r'\1', sql, count=1)
+    if alterado == sql:
+        raise RuntimeError('Não foi possível migrar a idade opcional do corte raso.')
+    alterado = re.sub(r'(?i)^CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`\[]?simulacao_cenarios["`\]]?',
+                      'CREATE TABLE simulacao_cenarios_migracao', alterado, count=1)
+    objetos = [r[0] for r in conn.execute(
+        "SELECT sql FROM sqlite_master WHERE tbl_name='simulacao_cenarios' "
+        "AND type IN ('index', 'trigger') AND sql IS NOT NULL")]
+    sequencia = conn.execute("SELECT seq FROM sqlite_sequence WHERE name='simulacao_cenarios'").fetchone()
+    conn.commit()
+    chaves_ativas = conn.execute('PRAGMA foreign_keys').fetchone()[0]
+    conn.execute('PRAGMA foreign_keys=OFF')
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute(alterado)
+        campos = ', '.join('"' + c[1].replace('"', '""') + '"' for c in colunas)
+        conn.execute(f'INSERT INTO simulacao_cenarios_migracao ({campos}) SELECT {campos} FROM simulacao_cenarios')
+        conn.execute('DROP TABLE simulacao_cenarios')
+        conn.execute('ALTER TABLE simulacao_cenarios_migracao RENAME TO simulacao_cenarios')
+        for objeto in objetos:
+            conn.execute(objeto)
+        if sequencia:
+            conn.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name='simulacao_cenarios'", (sequencia[0],))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute(f'PRAGMA foreign_keys={int(chaves_ativas)}')
 
 
 def _adicionar_colunas_faltantes(conn, tabela, colunas):

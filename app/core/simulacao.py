@@ -593,6 +593,11 @@ def obter_ajuste_weibull_por_simulacao(
     suficientes) fica com NaN só naquela etapa — não impede achar as
     outras. Levanta ValueError se parametros_weibull_manejo estiver vazia
     (ajuste nunca rodado)."""
+    if all(abs(float(v)) <= 1e-12 for v in (int_raleio, int_desbaste_1, int_desbaste_2)):
+        # Sem intervenções, só a distribuição inicial é utilizada.
+        campos = ('forma', 'escala', 'dap_med', 'dap_max', 'dap_min', 'ht_med',
+                  'fustes_ha_removidos', 'vtcc_ha_removido', 'cv_dap', 'dg', 'truncado_esquerda')
+        return pd.DataFrame(columns=['talhao'] + [f'{c}_{s}' for s in _SUFIXO_POR_ETAPA.values() for c in campos])
     df = pd.read_sql_query(
         f'SELECT talhao, manejo, forma, escala, dap_med, dap_max, dap_min, fustes_ha_removidos, '
         f'ht_med, vtcc_ha_removido, cv_dap, dg, truncado_esquerda '
@@ -992,6 +997,7 @@ def verificar_prontidao(
     conn: sqlite3.Connection,
     coluna_talhao_ifc: Optional[str] = None,
     coluna_fustes_observados: Optional[str] = None,
+    exigir_manejos: bool = True,
 ) -> Dict:
     """Confere se todas as tabelas/configurações necessárias pra gerar a
     simulação já existem, reaproveitando as mesmas funções de validação
@@ -1033,21 +1039,21 @@ def verificar_prontidao(
     except ValueError as e:
         pendencias.append(str(e))
 
-    total_por_simulacao = conn.execute(
-        f'SELECT COUNT(*) FROM "{TABELA_PARAMETROS_WEIBULL_MANEJO}"'
-    ).fetchone()[0]
-    if total_por_simulacao == 0:
-        pendencias.append(
-            "Ajuste Weibull \"Por Simulação\" não executado (aba \"Por Simulação\" da tela Weibull)")
-
-    try:
-        disponiveis = obter_intensidades_disponiveis(conn)
-        if not all(disponiveis.values()):
+    if exigir_manejos:
+        total_por_simulacao = conn.execute(
+            f'SELECT COUNT(*) FROM "{TABELA_PARAMETROS_WEIBULL_MANEJO}"'
+        ).fetchone()[0]
+        if total_por_simulacao == 0:
             pendencias.append(
-                "Simulação de Intensidades sem resultados (rode em Configurações)")
-    except sqlite3.OperationalError:
-        pendencias.append(
-            "Simulação de Intensidades não executada (rode em Configurações)")
+                "Ajuste Weibull \"Por Simulação\" não executado (aba \"Por Simulação\" da tela Weibull)")
+        try:
+            disponiveis = obter_intensidades_disponiveis(conn)
+            if not any(disponiveis.values()):
+                pendencias.append(
+                    "Simulação de Intensidades sem resultados (rode em Configurações)")
+        except sqlite3.OperationalError:
+            pendencias.append(
+                "Simulação de Intensidades não executada (rode em Configurações)")
 
     coluna_efetiva = coluna_talhao_ifc if coluna_talhao_ifc else obter_coluna_talhao(conn)
     if not coluna_efetiva:
@@ -1114,10 +1120,9 @@ def _preparar_baseline_populacao(
     try:
         disponiveis = obter_intensidades_disponiveis(conn)
     except sqlite3.OperationalError:
-        raise ValueError(
-            "Nenhuma Simulação de Intensidades encontrada. Rode a simulação em "
-            "Configurações antes de gerar esta simulação."
-        )
+        # A necessidade de intensidades é verificada por cenário, apenas
+        # para as intervenções efetivamente selecionadas.
+        disponiveis = {c: [] for c in ('int_raleio', 'int_desbaste_1', 'int_desbaste_2')}
 
     coluna_chave_weibull, df_weibull = obter_ajuste_weibull_por_talhao(conn)
 
@@ -1376,14 +1381,32 @@ def _persistir_populacao(
         conn.commit()
 
 
+def validar_idades_manejo(idades, idade_maxima=None):
+    """Valida somente as intervenções presentes, na ordem silvicultural."""
+    anterior = None
+    for chave, rotulo in (('raleio', 'Raleio'), ('desbaste_1', '1º Desbaste'),
+                          ('desbaste_2', '2º Desbaste'), ('corte_raso', 'Corte Raso')):
+        idade = idades.get(chave)
+        if idade is None:
+            continue
+        if not np.isfinite(idade) or idade < 1 or float(idade) != int(idade):
+            raise ValueError(f'A idade do {rotulo} precisa ser um número inteiro maior que zero.')
+        if idade_maxima is not None and idade > idade_maxima:
+            raise ValueError(f'A idade do {rotulo} ({idade}) supera a idade máxima de manejo ({idade_maxima:g}).')
+        if anterior is not None and idade <= anterior:
+            raise ValueError('As idades dos manejos selecionados precisam ser crescentes: '
+                             'Raleio < 1º Desbaste < 2º Desbaste < Corte Raso. Manejos não realizados são ignorados.')
+        anterior = idade
+
+
 def gerar_populacao(
     conn: sqlite3.Connection,
     coluna_talhao_ifc: str,
     coluna_fustes_observados: str,
-    idade_raleio: int, intensidade_raleio: float,
-    idade_desbaste_1: int, intensidade_desbaste_1: float,
-    idade_desbaste_2: int, intensidade_desbaste_2: float,
-    idade_corte_raso: int,
+    idade_raleio: Optional[int], intensidade_raleio: float,
+    idade_desbaste_1: Optional[int], intensidade_desbaste_1: float,
+    idade_desbaste_2: Optional[int], intensidade_desbaste_2: float,
+    idade_corte_raso: Optional[int],
     coluna_dap_med_observado: Optional[str] = None,
     coluna_dap_max_observado: Optional[str] = None,
     coluna_dap_min_observado: Optional[str] = None,
@@ -1481,26 +1504,19 @@ def gerar_populacao(
     numero_minimo_arvores = baseline["numero_minimo_arvores"]
     disponiveis = baseline["disponiveis"]
 
-    for rotulo, idade in (
-        ("Raleio", idade_raleio), ("1º Desbaste", idade_desbaste_1),
-        ("2º Desbaste", idade_desbaste_2), ("Corte Raso", idade_corte_raso),
-    ):
-        if idade < 1 or idade > idade_maxima:
-            raise ValueError(
-                f"A idade do {rotulo} ({idade}) precisa estar entre 1 e a idade máxima de manejo "
-                f"({idade_maxima:g})."
-            )
+    validar_idades_manejo(dict(raleio=idade_raleio, desbaste_1=idade_desbaste_1,
+                              desbaste_2=idade_desbaste_2, corte_raso=idade_corte_raso), idade_maxima)
+    intensidade_raleio = float(intensidade_raleio) if idade_raleio is not None else 0.0
+    intensidade_desbaste_1 = float(intensidade_desbaste_1) if idade_desbaste_1 is not None else 0.0
+    intensidade_desbaste_2 = float(intensidade_desbaste_2) if idade_desbaste_2 is not None else 0.0
 
-    if not (idade_raleio < idade_desbaste_1 < idade_desbaste_2 < idade_corte_raso):
-        raise ValueError(
-            "As idades precisam ser crescentes: Raleio < 1º Desbaste < 2º Desbaste < Corte Raso."
-        )
-
-    for chave_intensidade, rotulo, valor in (
-        ("int_raleio", "Raleio", intensidade_raleio),
-        ("int_desbaste_1", "1º Desbaste", intensidade_desbaste_1),
-        ("int_desbaste_2", "2º Desbaste", intensidade_desbaste_2),
+    for chave_intensidade, rotulo, valor, idade in (
+        ("int_raleio", "Raleio", intensidade_raleio, idade_raleio),
+        ("int_desbaste_1", "1º Desbaste", intensidade_desbaste_1, idade_desbaste_1),
+        ("int_desbaste_2", "2º Desbaste", intensidade_desbaste_2, idade_desbaste_2),
     ):
+        if idade is None:
+            continue
         if not any(abs(valor - v) < 1e-9 for v in disponiveis[chave_intensidade]):
             raise ValueError(
                 f"A intensidade do {rotulo} ({valor:g}) não é um valor testado na Simulação de "
@@ -1591,15 +1607,18 @@ def gerar_populacao(
         empurrao = np.where(ano_plantio.notna() & (atraso > 0), atraso, 0.0)
         return pd.Series(float(idade_config), index=df_talhao_com_weibull.index) + empurrao
 
-    df_talhao_com_weibull["__idade_raleio_final__"] = _idade_ajustada(idade_raleio)
-    df_talhao_com_weibull["__idade_desbaste_1_final__"] = np.maximum(
-        _idade_ajustada(idade_desbaste_1).to_numpy(),
-        df_talhao_com_weibull["__idade_raleio_final__"].to_numpy() + 1,
-    )
-    df_talhao_com_weibull["__idade_desbaste_2_final__"] = np.maximum(
-        _idade_ajustada(idade_desbaste_2).to_numpy(),
-        df_talhao_com_weibull["__idade_desbaste_1_final__"].to_numpy() + 1,
-    )
+    idade_anterior = np.full(len(df_talhao_com_weibull), -np.inf)
+    colunas_idades = []
+    for evento, idade in (('raleio', idade_raleio), ('desbaste_1', idade_desbaste_1),
+                          ('desbaste_2', idade_desbaste_2)):
+        coluna_final = f'__idade_{evento}_final__'
+        colunas_idades.append(coluna_final)
+        if idade is None:
+            df_talhao_com_weibull[coluna_final] = np.nan
+        else:
+            final = np.maximum(_idade_ajustada(idade).to_numpy(), idade_anterior + 1)
+            df_talhao_com_weibull[coluna_final] = final
+            idade_anterior = final
 
     # Traz forma/escala/dap_med/dap_max/dap_min/ht_med/fustes_ha_removidos/
     # vtcc_ha_removido do ajuste "Por Simulação" pra cada etapa (Raleio,
@@ -1845,11 +1864,10 @@ def gerar_populacao(
      coluna_cv_ef_d2, coluna_dg_ef_d2, coluna_te_ef_d2) = \
         colunas_efetivas_por_etapa["apos_desbaste_2"]
 
-    condicoes_idade = [
-        populacao[coluna_idade] < populacao["__idade_raleio_final__"],
-        populacao[coluna_idade] < populacao["__idade_desbaste_1_final__"],
-        populacao[coluna_idade] < populacao["__idade_desbaste_2_final__"],
-    ]
+    # O próximo evento presente delimita cada estado; ausência de eventos
+    # posteriores mantém o estado vigente até o fim do horizonte.
+    proximas_idades = populacao[colunas_idades].bfill(axis=1).fillna(np.inf)
+    condicoes_idade = [populacao[coluna_idade] < proximas_idades[c] for c in colunas_idades]
     populacao[coluna_forma_atual] = np.select(
         condicoes_idade,
         [populacao[coluna_forma], populacao[coluna_forma_ef_r], populacao[coluna_forma_ef_d1]],

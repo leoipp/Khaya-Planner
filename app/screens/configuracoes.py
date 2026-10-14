@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from ..core import construtores, intensidades, projeto, simulacao
+from ..core import construtores, intensidades, projeto, simulacao, preferencias, planejamento
 from ..core.db import (
     conectar, conectar_caminho, espaco_livre_suficiente_para_vacuum, excluir_tabelas,
     executar_vacuum, listar_tabelas_nao_essenciais,
@@ -248,6 +248,22 @@ class TelaConfiguracoes(TelaBase):
         layout.addWidget(cartao_economico)
         self._montar_secao_economica(cartao_economico.corpo)
 
+        cartao_solver = Cartao("CPLEX — solver de planejamento (esta máquina)")
+        layout.addWidget(cartao_solver)
+        solver_layout = QVBoxLayout(cartao_solver.corpo)
+        solver_layout.addWidget(QLabel("Selecione cplex.exe na pasta cplex/bin da sua instalação IBM ILOG CPLEX."))
+        linha_solver = QHBoxLayout()
+        self.entry_cplex = QLineEdit(preferencias.carregar().get('cplex_executavel', ''))
+        self.entry_cplex.setPlaceholderText("Caminho completo do cplex.exe")
+        linha_solver.addWidget(self.entry_cplex, 1)
+        procurar_solver = QPushButton("Procurar…")
+        procurar_solver.clicked.connect(self._procurar_cplex)
+        linha_solver.addWidget(procurar_solver)
+        salvar_solver = QPushButton("Salvar caminho do CPLEX")
+        salvar_solver.clicked.connect(self._salvar_cplex)
+        linha_solver.addWidget(salvar_solver)
+        solver_layout.addLayout(linha_solver)
+
         # Mantém os valores disponíveis para salvar/exportar pela tela
         # Configurações, embora a edição visual agora viva em Sortimentos.
         self._dimensoes_tora_ocultas = QWidget(self)
@@ -255,6 +271,21 @@ class TelaConfiguracoes(TelaBase):
         self._dimensoes_tora_ocultas.hide()
 
         layout.addStretch(1)
+
+    def _procurar_cplex(self):
+        caminho, _ = QFileDialog.getOpenFileName(self, "Executável CPLEX", self.entry_cplex.text(),
+                                               "Executável CPLEX (cplex.exe);;Todos os arquivos (*)")
+        if caminho:
+            self.entry_cplex.setText(caminho)
+
+    def _salvar_cplex(self):
+        try:
+            caminho = planejamento.validar_solver(self.entry_cplex.text().strip())
+            preferencias.salvar_cplex(caminho)
+        except Exception as erro:
+            QMessageBox.warning(self, "CPLEX", str(erro))
+            return
+        QMessageBox.information(self, "CPLEX", "Caminho salvo para este usuário e esta máquina.")
 
     def _montar_aba_operacoes(self, container):
         """Simulação de intensidades (esquerda) e Importação de dados

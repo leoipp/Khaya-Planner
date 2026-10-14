@@ -404,6 +404,10 @@ class TelaConstrutorVariaveis(TelaBase):
         self._pan_x = 0.0
         self._pan_y = 0.0
         self._pan_arraste_inicio = None
+        # Aparência pertence ao grafo: assim cada construtor reabre com o
+        # traçado escolhido pelo usuário. "retas" mantém o desenho
+        # ortogonal histórico; "curvas" usa Bézier suave.
+        self._estilo_ligacoes = "retas"
 
         self._colunas_disponiveis = []
         self._modelos_disponiveis = []
@@ -653,6 +657,13 @@ class TelaConstrutorVariaveis(TelaBase):
         botao_cor_borda = self._botao_icone("cor_borda", "Cor da borda dos nós...")
         botao_cor_borda.clicked.connect(self._escolher_cor_borda_no)
         barra_zoom.addWidget(botao_cor_borda)
+        self.combo_estilo_ligacoes = QComboBox()
+        self.combo_estilo_ligacoes.addItem("Ligações retas", "retas")
+        self.combo_estilo_ligacoes.addItem("Ligações curvas", "curvas")
+        self.combo_estilo_ligacoes.setToolTip("Formato visual das ligações entre os nós")
+        self.combo_estilo_ligacoes.setMinimumContentsLength(14)
+        self.combo_estilo_ligacoes.currentIndexChanged.connect(self._alterar_estilo_ligacoes)
+        barra_zoom.addWidget(self.combo_estilo_ligacoes)
         self.botao_maximizar_canvas = self._botao_icone("maximizar", "Maximizar canvas")
         self.botao_maximizar_canvas.clicked.connect(self._alternar_maximizar_canvas)
         barra_zoom.addWidget(self.botao_maximizar_canvas)
@@ -710,6 +721,10 @@ class TelaConstrutorVariaveis(TelaBase):
         self._splitter_vertical.setStretchFactor(1, 2)
         return self._splitter_vertical
 
+    def _alterar_estilo_ligacoes(self, _indice=None):
+        self._estilo_ligacoes = self.combo_estilo_ligacoes.currentData() or "retas"
+        self._redesenhar()
+
     def _alternar_maximizar_canvas(self):
         """Alterna entre o layout normal e o canvas ocupando a janela
         inteira — some com a prévia e a barra de navegação/rodapé do app,
@@ -743,10 +758,34 @@ class TelaConstrutorVariaveis(TelaBase):
         self._limpar_canvas()
 
     def recarregar_lista(self):
+        self._atualizar_tabelas_origem()
         self._atualizar_colunas_disponiveis()
         self._atualizar_modelos_disponiveis()
         self._atualizar_afilamento_disponiveis()
         self._atualizar_construtores_disponiveis()
+
+    def _atualizar_tabelas_origem(self):
+        from ..core import camadas
+        atual = self.combo_tabela_origem.currentText()
+        tabelas = []
+        try:
+            conn = conectar()
+        except RuntimeError:
+            pass
+        else:
+            try:
+                tabelas = camadas.listar(conn, incluir_geometrias=False)
+            finally:
+                conn.close()
+        self.combo_tabela_origem.blockSignals(True)
+        self.combo_tabela_origem.clear()
+        self.combo_tabela_origem.addItems(TABELAS_ORIGEM)
+        for tabela, nome, _, _ in tabelas:
+            self.combo_tabela_origem.addItem(tabela)
+            self.combo_tabela_origem.setItemData(
+                self.combo_tabela_origem.count() - 1, f'Shapefile: {nome}', Qt.ItemDataRole.ToolTipRole)
+        self.combo_tabela_origem.setCurrentText(atual)
+        self.combo_tabela_origem.blockSignals(False)
 
     def _atualizar_colunas_disponiveis(self):
         # Só popula self._colunas_disponiveis — sem lista própria no
@@ -1308,7 +1347,9 @@ class TelaConstrutorVariaveis(TelaBase):
         pintor.drawText(retangulo, int(alinhamento) | int(Qt.TextFlag.TextWordWrap), texto)
 
     def _pintar(self, pintor):
-        pintor.fillRect(self.canvas.rect(), QColor(tema.obter().cor_canvas_construtor()))
+        cor_fundo = QColor(tema.obter().cor_canvas_construtor())
+        pintor.fillRect(self.canvas.rect(), cor_fundo)
+        self._desenhar_grade(pintor, cor_fundo)
         for grupo_id, grupo in self.grupos.items():
             self._desenhar_grupo(pintor, grupo_id, grupo)
         for con in self.conexoes:
@@ -1318,11 +1359,41 @@ class TelaConstrutorVariaveis(TelaBase):
             x2, y2 = self._mundo_para_tela(*self._fio_temp_destino)
             caneta = QPen(QColor(COR_FIO_TEMP), 2, Qt.PenStyle.DashLine)
             pintor.setPen(caneta)
-            pintor.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+            caminho = QPainterPath(QPointF(x1, y1))
+            if self._estilo_ligacoes == "curvas":
+                distancia = max(36 * self._zoom, abs(x2 - x1) * 0.45)
+                caminho.cubicTo(x1 + distancia, y1, x2 - distancia, y2, x2, y2)
+            else:
+                caminho.lineTo(x2, y2)
+            pintor.drawPath(caminho)
         for no_id, no in self.nos.items():
             self._desenhar_no(pintor, no_id, no)
         if self._selecao_retangulo is not None:
             self._desenhar_selecao_retangulo(pintor)
+
+    def _desenhar_grade(self, pintor, cor_fundo):
+        """Grade infinita discreta, ancorada no mundo e acompanhando pan/zoom."""
+        passo_mundo = 24
+        passo = passo_mundo * self._zoom
+        if passo < 8:
+            passo *= 4
+        elif passo < 14:
+            passo *= 2
+        inicio_x = (-self._pan_x * self._zoom) % passo
+        inicio_y = (-self._pan_y * self._zoom) % passo
+        cor_grade = QColor("#ffffff" if cor_fundo.lightness() < 128 else "#000000")
+        cor_grade.setAlpha(22)
+        pintor.save()
+        pintor.setPen(QPen(cor_grade, 1))
+        x = inicio_x
+        while x < self.canvas.width():
+            pintor.drawLine(QPointF(x, 0), QPointF(x, self.canvas.height()))
+            x += passo
+        y = inicio_y
+        while y < self.canvas.height():
+            pintor.drawLine(QPointF(0, y), QPointF(self.canvas.width(), y))
+            y += passo
+        pintor.restore()
 
     def _desenhar_grupo(self, pintor, grupo_id, grupo):
         """Caixa de agrupamento — retângulo pontilhado com uma faixa de
@@ -1379,11 +1450,7 @@ class TelaConstrutorVariaveis(TelaBase):
         # _item_no_ponto/_ao_arrastar, tipo "fio") pra "movimentar" a linha.
         dobra = con.get("dobra", 0.5)
         meio = x1 + (x2 - x1) * dobra
-        caminho = QPainterPath()
-        caminho.moveTo(x1, y1)
-        caminho.lineTo(meio, y1)
-        caminho.lineTo(meio, y2)
-        caminho.lineTo(x2, y2)
+        caminho = self._caminho_fio_tela(con)
         relacionado_selecao = (
             con["origem"] in self._selecionados or con["destino"] in self._selecionados)
         ha_selecao = bool(self._selecionados)
@@ -1416,7 +1483,8 @@ class TelaConstrutorVariaveis(TelaBase):
                 texto = f"1/x,{SIMBOLO_OPERADOR[operador]}" if inverso else SIMBOLO_OPERADOR[operador]
             else:
                 texto = "1/x" if inverso else "·"
-            mx, my = meio, (y1 + y2) / 2
+            ponto_meio = caminho.pointAtPercent(0.5)
+            mx, my = ponto_meio.x(), ponto_meio.y()
             raio = (RAIO_PINO + 3) * self._zoom
             pintor.setPen(QPen(self._cor_borda_no, 1.5))
             pintor.setBrush(QColor(COR_OPERADOR))
@@ -1424,6 +1492,24 @@ class TelaConstrutorVariaveis(TelaBase):
             self._desenhar_texto(
                 pintor, mx, my, texto, "#000000", round(7 * self._zoom), negrito=True,
                 ancora="center", largura=raio * 4)
+
+    def _caminho_fio_tela(self, con):
+        x1, y1 = self._mundo_para_tela(
+            *self._posicao_pino_saida(con["origem"], con.get("saida_idx", 0)))
+        x2, y2 = self._mundo_para_tela(
+            *self._posicao_pino_entrada(con["destino"], con["entrada_idx"]))
+        dobra = con.get("dobra", 0.5)
+        meio = x1 + (x2 - x1) * dobra
+        caminho = QPainterPath(QPointF(x1, y1))
+        if self._estilo_ligacoes == "curvas":
+            # A dobra continua útil no modo curvo: desloca o par de pontos
+            # de controle, permitindo abrir/fechar o arco ao arrastar.
+            caminho.cubicTo(meio, y1, meio, y2, x2, y2)
+        else:
+            caminho.lineTo(meio, y1)
+            caminho.lineTo(meio, y2)
+            caminho.lineTo(x2, y2)
+        return caminho
 
     def _cor_borda_no_efetiva(self, no):
         """Cor da borda do NÓ (e dos pinos/textos desenhados dentro dele) —
@@ -1462,6 +1548,8 @@ class TelaConstrutorVariaveis(TelaBase):
         ALTURA_TITULO_MODELO). Ver _campo_nome_no."""
         layout = self._layout_campo_nome(tx, ty, larg_tela)
         tam_rotulo = layout["tam_rotulo"]
+        if no["tipo"] == "saida" and no.get("usar_base_anterior_manejo", False):
+            rotulo_tipo += " · base anterior"
         self._desenhar_texto(
             pintor, tx + 6 * self._zoom, layout["y_rotulo"], f"{rotulo_tipo}:", "white", tam_rotulo,
             negrito=True, ancora="w", largura=larg_tela - 12 * self._zoom)
@@ -1534,7 +1622,7 @@ class TelaConstrutorVariaveis(TelaBase):
         tx, ty = self._mundo_para_tela(no["x"], no["y"])
         larg_tela = LARGURA_NO * self._zoom
         if (no.get("nome_personalizado") or "").strip():
-            ty += 12 * self._zoom
+            ty += 18 * self._zoom
         layout = self._layout_campo_nome(tx, ty, larg_tela)
         lado = max(1, round(14 * self._zoom))
         altura_clique = max(lado, 22 * self._zoom)
@@ -1578,7 +1666,7 @@ class TelaConstrutorVariaveis(TelaBase):
         tx, ty = self._mundo_para_tela(no["x"], no["y"])
         larg_tela = LARGURA_NO * self._zoom
         if (no.get("nome_personalizado") or "").strip():
-            ty += 12 * self._zoom
+            ty += 18 * self._zoom
         geometria = self._layout_campo_nome(tx, ty, larg_tela)
         margem = 6 * self._zoom
         return QRectF(
@@ -1605,27 +1693,37 @@ class TelaConstrutorVariaveis(TelaBase):
             pintor.setBrush(Qt.BrushStyle.NoBrush)
             pintor.drawRoundedRect(QRectF(tx - 2, ty - 2, larg_tela + 4, alt_tela + 4), raio_canto, raio_canto)
 
-        # ID estável do nó: aparece discretamente no canto e corresponde
-        # ao identificador usado nas conexões/diagnósticos. É especialmente
-        # útil quando há vários nós com o mesmo modelo ou nome de saída.
-        self._desenhar_texto(
-            pintor, tx + larg_tela - 5 * self._zoom, ty + 7 * self._zoom, f"#{no_id}",
-            "#ffffff", round(6.5 * self._zoom), ancora="e", largura=38 * self._zoom)
-
         nome_personalizado = (no.get("nome_personalizado") or "").strip()
         campo_nome = _campo_nome_no(no)
         if nome_personalizado:
+            # Faixa de título separa claramente o nome escolhido pelo
+            # usuário do tipo/valor técnico exibido logo abaixo.
+            faixa = QColor("#000000")
+            faixa.setAlpha(42)
+            pintor.setPen(Qt.PenStyle.NoPen)
+            pintor.setBrush(faixa)
+            pintor.drawRoundedRect(
+                QRectF(tx + 3 * self._zoom, ty + 3 * self._zoom,
+                       larg_tela - 6 * self._zoom, 18 * self._zoom),
+                6 * self._zoom, 6 * self._zoom)
             self._desenhar_texto(
-                pintor, tx + larg_tela / 2, ty + 9 * self._zoom, nome_personalizado, "white",
-                round(8 * self._zoom), negrito=True, ancora="center", largura=larg_tela - 12 * self._zoom)
-            deslocamento = 12 * self._zoom
+                pintor, tx + 9 * self._zoom, ty + 12 * self._zoom, nome_personalizado, "white",
+                round(8 * self._zoom), negrito=True, ancora="w",
+                largura=larg_tela - 54 * self._zoom)
+            deslocamento = 18 * self._zoom
         else:
             deslocamento = 0
+        # ID vira um pequeno selo; não colide mais com o título do nó.
+        self._desenhar_texto(
+            pintor, tx + larg_tela - 7 * self._zoom, ty + 11 * self._zoom, f"#{no_id}",
+            "#ffffff", round(6.5 * self._zoom), negrito=True, ancora="e",
+            largura=34 * self._zoom)
         if campo_nome is None:
             self._desenhar_texto(
-                pintor, tx + larg_tela / 2, ty + deslocamento + 13 * self._zoom, _titulo_no_automatico(no),
+                pintor, tx + (larg_tela - 38 * self._zoom) / 2,
+                ty + deslocamento + 13 * self._zoom, _titulo_no_automatico(no),
                 "white", round(9 * self._zoom), negrito=True, ancora="center",
-                largura=larg_tela - 12 * self._zoom)
+                largura=larg_tela - 50 * self._zoom)
         else:
             rotulo_tipo, valores, linhas_extra = campo_nome
             self._desenhar_campo_nome(
@@ -1787,10 +1885,8 @@ class TelaConstrutorVariaveis(TelaBase):
             no_destino = self.nos.get(con["destino"])
             if no_destino is None or no_destino["tipo"] != "saida":
                 continue
-            x1, y1 = self._mundo_para_tela(*self._posicao_pino_saida(con["origem"], con.get("saida_idx", 0)))
-            x2, y2 = self._mundo_para_tela(*self._posicao_pino_entrada(con["destino"], con["entrada_idx"]))
-            dobra = con.get("dobra", 0.5)
-            mx, my = x1 + (x2 - x1) * dobra, (y1 + y2) / 2
+            ponto = self._caminho_fio_tela(con).pointAtPercent(0.5)
+            mx, my = ponto.x(), ponto.y()
             if (mx - x) ** 2 + (my - y) ** 2 <= raio_marcador ** 2:
                 return ("operador_fio", con["destino"], con["entrada_idx"])
 
@@ -1799,13 +1895,14 @@ class TelaConstrutorVariaveis(TelaBase):
         # "arrastar" a linha (reposicionar a dobra, ver _ao_arrastar).
         raio_fio = 5 + max(2, self._zoom)
         for i, con in enumerate(self.conexoes):
-            x1, y1 = self._mundo_para_tela(*self._posicao_pino_saida(con["origem"], con.get("saida_idx", 0)))
-            x2, y2 = self._mundo_para_tela(*self._posicao_pino_entrada(con["destino"], con["entrada_idx"]))
-            dobra = con.get("dobra", 0.5)
-            meio = x1 + (x2 - x1) * dobra
-            for ax, ay, bx, by in ((x1, y1, meio, y1), (meio, y1, meio, y2), (meio, y2, x2, y2)):
-                if _distancia_ponto_segmento(x, y, ax, ay, bx, by) <= raio_fio:
+            caminho = self._caminho_fio_tela(con)
+            anterior = caminho.pointAtPercent(0)
+            for passo in range(1, 25):
+                atual = caminho.pointAtPercent(passo / 24)
+                if _distancia_ponto_segmento(
+                        x, y, anterior.x(), anterior.y(), atual.x(), atual.y()) <= raio_fio:
                     return ("fio", i, None)
+                anterior = atual
 
         for grupo_id, grupo in self.grupos.items():
             gx0, gy0 = self._mundo_para_tela(grupo["x"], grupo["y"])
@@ -2198,6 +2295,16 @@ class TelaConstrutorVariaveis(TelaBase):
         if no["tipo"] == "acumulado":
             menu.addAction(
                 "Configurar agrupamento (grupo/ordem)...", lambda: self._configurar_acumulado(no_id))
+        if no["tipo"] == "saida":
+            acao_base = menu.addAction("Usar base anterior ao manejo")
+            acao_base.setCheckable(True)
+            acao_base.setChecked(no.get("usar_base_anterior_manejo", False))
+            acao_base.setToolTip(
+                "Recalcula este ramo com os campos _atual da idade anterior do mesmo "
+                "talhão e cenário, mantendo a idade e a remoção atuais. "
+                "As outras saídas continuam usando suas próprias configurações.")
+            acao_base.triggered.connect(
+                lambda marcado: self._definir_base_anterior_manejo(no_id, marcado))
         if no["tipo"] == "receita_sortimento":
             acao_tributos = menu.addAction("Deduzir PIS, COFINS e FUNRURAL")
             acao_tributos.setCheckable(True)
@@ -2527,6 +2634,10 @@ class TelaConstrutorVariaveis(TelaBase):
         no["gravar"] = not no.get("gravar", True)
         self._redesenhar()
 
+    def _definir_base_anterior_manejo(self, no_id, marcado):
+        self.nos[no_id]["usar_base_anterior_manejo"] = bool(marcado)
+        self._redesenhar()
+
     def _alternar_excluir_outras_contas_formacao(self, no_id):
         no = self.nos[no_id]
         no["excluir_outras_contas"] = not no.get("excluir_outras_contas", True)
@@ -2763,7 +2874,7 @@ class TelaConstrutorVariaveis(TelaBase):
             df, self.nos, self.conexoes, classes_diametricas, sortimentos, config_financeiro,
             idade_corte_raso, dimensoes_tora, custos_colheita,
             tipo_normalizacao_weibull=tipo_normalizacao_weibull, custos_formacao=custos_formacao,
-            debug_tempos=debug_tempos)
+            debug_tempos=debug_tempos, coluna_talhao=simulacao.obter_coluna_talhao(conn))
         return df, valores, erros
 
     def _resumo_tempos(self, debug_tempos, minimo_segundos=0.05, top_n=3):
@@ -2867,6 +2978,9 @@ class TelaConstrutorVariaveis(TelaBase):
         # string do JSON (json.loads), igual acontecia com "nos" antes de
         # obter_construtor converter (ver core/construtores.py:_desserializar_linha).
         self.grupos = {int(k): v for k, v in construtor["grafo"].get("grupos", {}).items()}
+        self._estilo_ligacoes = construtor["grafo"].get("estilo_ligacoes", "retas")
+        indice_estilo = self.combo_estilo_ligacoes.findData(self._estilo_ligacoes)
+        self.combo_estilo_ligacoes.setCurrentIndex(max(0, indice_estilo))
         self._proximo_grupo_id = (max(self.grupos.keys()) + 1) if self.grupos else 1
         self._selecionados = set()
         self._proximo_id = (max(self.nos.keys()) + 1) if self.nos else 1
@@ -3118,7 +3232,12 @@ class TelaConstrutorVariaveis(TelaBase):
             nome = nome.strip()
 
             tabela_origem = self.combo_tabela_origem.currentText()
-            grafo = {"nos": self.nos, "conexoes": self.conexoes, "grupos": self.grupos}
+            grafo = {
+                "nos": self.nos,
+                "conexoes": self.conexoes,
+                "grupos": self.grupos,
+                "estilo_ligacoes": self._estilo_ligacoes,
+            }
             self.construtor_atual_id = construtores.salvar_construtor(
                 conn, nome, tabela_origem, grafo, construtor_id=self.construtor_atual_id)
 

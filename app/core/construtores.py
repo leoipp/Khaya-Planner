@@ -821,11 +821,42 @@ def _ordem_execucao(nos: dict, conexoes: list) -> list:
     return ordem
 
 
+def _base_anterior_manejo(df, coluna_talhao):
+    """Troca apenas campos _atual nas intervenções, sem mover idade/remoção."""
+    obrigatorias = [coluna_talhao, "idade_simulada", "evento_manejo"]
+    if not coluna_talhao or any(c not in df.columns for c in obrigatorias):
+        raise ValueError("Usar base anterior ao manejo exige a coluna de talhão configurada, "
+                         "idade_simulada e evento_manejo na tabela de origem.")
+    grupos = list(dict.fromkeys(
+        [coluna_talhao] + [c for c in ("cenario_id", "cenario") if c in df.columns]))
+    # Índice posicional próprio: preserva inclusive índices não consecutivos do chamador.
+    base = df.reset_index(drop=True)
+    idades = pd.to_numeric(base["idade_simulada"], errors="coerce")
+    validas = base.loc[idades.gt(0) & base[grupos].notna().all(axis=1)].copy()
+    validas["idade_simulada"] = idades.loc[validas.index]
+    if validas.duplicated(grupos + ["idade_simulada"]).any():
+        raise ValueError("Base anterior ao manejo: há mais de uma linha por talhão, "
+                         "cenário e idade; não é possível identificar a linha anterior.")
+    ordenadas = validas.sort_values(grupos + ["idade_simulada"], kind="stable")
+    colunas = [c for c in df.columns if c.endswith("_atual")]
+    anteriores = ordenadas.groupby(grupos, dropna=False, sort=False)[colunas].shift(1)
+    anteriores = anteriores.reindex(base.index)
+    mascara = _mascara_eventos_no(
+        {}, base["evento_manejo"],
+        pd.to_numeric(base["intensidade_evento"], errors="coerce")
+        if "intensidade_evento" in base else None)
+    resultado = df.copy()
+    for coluna in colunas:
+        resultado[coluna] = base[coluna].where(~mascara, anteriores[coluna]).to_numpy()
+    return resultado
+
+
 def avaliar_grafo(
     df: pd.DataFrame, nos: dict, conexoes: list, classes_diametricas=None, sortimentos=None,
     config_financeiro=None, idade_corte_raso=None, dimensoes_tora=None, custos_colheita=None,
     tipo_normalizacao_weibull="aditiva", custos_formacao=None,
     debug_tempos: Optional[Dict[int, float]] = None,
+    coluna_talhao: Optional[str] = None,
 ) -> Tuple[Dict, List[str]]:
     """Avalia o grafo sobre um DataFrame já lido (precisa ter coluna "id").
     Devolve (valores, erros): `valores` mapeia no_id -> pd.Series pros nós
@@ -895,6 +926,13 @@ def avaliar_grafo(
     lentos). Não afeta o resultado, só mede; None (padrão) não mede nada,
     sem custo extra além de um `time.perf_counter()` por nó.
 
+    `coluna_talhao` identifica o grupo da simulação. Saídas com
+    `usar_base_anterior_manejo` recalculam seus ancestrais com os campos
+    `_atual` da idade anterior positiva do mesmo talhão/cenário, somente
+    nas intervenções válidas. Idade e remoção permanecem na linha atual.
+    Sem idade anterior, esses campos ficam vazios. A opção não modifica
+    o DataFrame, o grafo nem o contexto das outras saídas.
+
     Nós "receita_sortimento"/"rendimento_sortimento"/"custo_colheita" só
     calculam nas linhas com "evento_manejo" preenchido (se essa coluna
     existir em `df`), mesmo sem nada configurado em "Configurar
@@ -904,6 +942,10 @@ def avaliar_grafo(
     EXCEÇÃO (mesmo espírito do nó "saida"): sem nada configurado em
     "Configurar eventos...", calculam em TODA idade, sem restrição — só
     passam a restringir se o usuário marcar eventos específicos ali."""
+    # Cada saída habilitada tem um contexto próprio; os nós compartilhados
+    # continuam calculados normalmente para as demais saídas. No contexto
+    # alternativo todas as opções são desligadas, evitando recuos duplicados.
+    base_anterior = None
     ordem = _ordem_execucao(nos, conexoes)
 
     # Índice imutável das entradas do grafo. O construtor continua aceitando
@@ -1080,6 +1122,34 @@ def avaliar_grafo(
             _debug_no_anterior = no_id
 
         no = nos[no_id]
+
+        if no["tipo"] == "saida" and no.get("usar_base_anterior_manejo", False):
+            try:
+                if base_anterior is None:
+                    base_anterior = _base_anterior_manejo(df, coluna_talhao)
+                ancestrais = {no_id}
+                pendentes = [no_id]
+                while pendentes:
+                    destino = pendentes.pop()
+                    for con in conexoes:
+                        if con["destino"] == destino and con["origem"] not in ancestrais:
+                            ancestrais.add(con["origem"])
+                            pendentes.append(con["origem"])
+                nos_contexto = {
+                    chave: dict(nos[chave], usar_base_anterior_manejo=False)
+                    for chave in ancestrais}
+                conexoes_contexto = [c for c in conexoes if c["destino"] in ancestrais]
+                alternativos, erros_contexto = avaliar_grafo(
+                    base_anterior, nos_contexto, conexoes_contexto, classes_diametricas,
+                    sortimentos, config_financeiro, idade_corte_raso, dimensoes_tora,
+                    custos_colheita, tipo_normalizacao_weibull, custos_formacao,
+                    coluna_talhao=coluna_talhao)
+                erros.extend(e for e in erros_contexto if e not in erros)
+                if no_id in alternativos:
+                    valores[no_id] = alternativos[no_id]
+            except ValueError as exc:
+                erros.append(f"\"{no['rotulo']}\": {exc}")
+            continue
 
         if no["tipo"] == "modelo":
             # Uma entrada ligada num nó "classe_diametrica" (em vez de
@@ -1807,8 +1877,8 @@ def avaliar_grafo(
                 continue
             if idade_corte_raso is None:
                 erros.append(
-                    f"\"{no['rotulo']}\": idade do Corte Raso desconhecida — gere a simulação "
-                    "(tela Simulação) antes")
+                    f"\"{no['rotulo']}\": VET exige uma idade de Corte Raso definida; "
+                    "não se aplica a um cenário sem corte raso")
                 continue
 
             taxa = float(config_financeiro["taxa_desconto"]) / 100.0
@@ -2576,7 +2646,7 @@ def aplicar_construtores_salvos(
                 df, construtor["grafo"]["nos"], construtor["grafo"]["conexoes"], classes_diametricas,
                 sortimentos, config_financeiro, idade_corte_raso, dimensoes_tora, custos_colheita,
                 tipo_normalizacao_weibull=tipo_normalizacao_weibull, custos_formacao=custos_formacao,
-                debug_tempos=debug_tempos)
+                debug_tempos=debug_tempos, coluna_talhao=simulacao.obter_coluna_talhao(conn))
             saidas = saidas_nomeadas(construtor["grafo"]["nos"], valores)
             if not saidas:
                 if erros:
@@ -2703,7 +2773,7 @@ def aplicar_construtores_em_memoria(
                 df, construtor["grafo"]["nos"], construtor["grafo"]["conexoes"], classes_diametricas,
                 sortimentos, config_financeiro, idade_corte_raso, dimensoes_tora, custos_colheita,
                 tipo_normalizacao_weibull=tipo_normalizacao_weibull, custos_formacao=custos_formacao,
-                debug_tempos=debug_tempos)
+                debug_tempos=debug_tempos, coluna_talhao=simulacao.obter_coluna_talhao(conn))
             saidas = saidas_nomeadas(construtor["grafo"]["nos"], valores)
             if not saidas:
                 if erros:

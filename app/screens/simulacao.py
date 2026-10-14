@@ -20,6 +20,7 @@ original (geração única e geração em lote) viram `QThread` com sinais
 direto na thread da GUI, sem fila nem polling.
 """
 import itertools
+import math
 import os
 import shutil
 import sqlite3
@@ -34,7 +35,7 @@ from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..core import construtores, projeto, simulacao
@@ -765,42 +766,13 @@ def _gravar_log_construtores(tempos_construtores, perfil_caso=None, resumo_tempo
 # grandes continuam permitidas, mas exigem confirmação do usuário.
 _LIMITE_AVISO_GRADE_CENARIOS = 200
 
-# Ordem cronológica fixa dos manejos — usada por _preencher_idades_puladas
-# (ver TelaSimulacao._gerar_grade_cenarios) pra garantir Raleio < 1º
-# Desbaste < 2º Desbaste < Corte Raso em toda combinação da grade, mesmo
-# quando um manejo foi "pulado" (idade em branco no painel, ver
-# TelaSimulacao._ler_evento_grade_opcional).
-_ORDEM_EVENTOS_MANEJO = ("raleio", "desbaste_1", "desbaste_2", "corte_raso")
-
-
-def _preencher_idades_puladas(idades):
-    """`idades`: dict evento -> idade (int) ou None (manejo pulado, ver
-    _ler_evento_grade_opcional) — "corte_raso" nunca é None (sempre
-    obrigatório no painel "Grade automática"). Devolve um dict novo com
-    toda idade None preenchida por um valor sintético (só serve pra manter
-    a ordem — a intensidade 0% do manejo pulado já garante que ele não
-    remove nada de verdade) OU None se não tiver como manter Raleio < 1º
-    Desbaste < 2º Desbaste < Corte Raso nessa combinação (ex: dois manejos
-    definidos colados demais, sem espaço pra encaixar um pulado entre
-    eles, ou idade sintética que precisaria ser < 1).
-
-    Varre de trás pra frente (Corte Raso primeiro) guardando `teto` — a
-    idade já resolvida do próximo manejo à direita: um manejo pulado vira
-    `teto - 1` (encostado imediatamente abaixo do vizinho), um manejo com
-    idade definida só precisa continuar menor que `teto`."""
-    resultado = dict(idades)
-    teto = None
-    for evento in reversed(_ORDEM_EVENTOS_MANEJO):
-        valor = resultado[evento]
-        if valor is None:
-            if teto is None or teto <= 1:
-                return None
-            valor = teto - 1
-            resultado[evento] = valor
-        if teto is not None and valor >= teto:
-            return None
-        teto = valor
-    return resultado
+def _validar_combinacao_manejos(idades):
+    """Valida somente intervenções presentes, preservando as omitidas."""
+    try:
+        simulacao.validar_idades_manejo(idades)
+    except ValueError:
+        return None
+    return dict(idades)
 
 # Guarda de espaço em disco do lote de "Múltiplos cenários"/"Grade
 # automática" (ver _ThreadGerarLote.run) — cada cenário grava sua própria
@@ -929,66 +901,48 @@ class TelaSimulacao(TelaBase):
     # ---------------- formulário ----------------
 
     def _montar_form(self):
-        # QScrollArea em vez de só um QWidget — mesmo motivo de
-        # app/screens/modelos.py: sem isso, uma janela menor que o
-        # formulário inteiro corta os últimos campos sem nenhum jeito de
-        # rolar até eles.
         layout_raiz = QVBoxLayout(self)
         layout_raiz.setContentsMargins(0, 0, 0, 0)
+        cabecalho = QVBoxLayout()
+        cabecalho.setContentsMargins(16, 12, 16, 4)
+        titulo = QLabel("Simulação")
+        qss.aplicar_variante(titulo, "titulo-secao")
+        cabecalho.addWidget(titulo)
+        descricao = QLabel("Defina o manejo, gere os cenários e compare os resultados.")
+        qss.aplicar_variante(descricao, "descricao-tela")
+        descricao.setWordWrap(True)
+        cabecalho.addWidget(descricao)
+        layout_raiz.addLayout(cabecalho)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        # O formulário é montado para se adaptar à largura disponível;
-        # mantenha somente a rolagem vertical. Isso também evita que a
-        # largura reservada pela barra horizontal faça o conteúdo oscilar
-        # ao redimensionar a janela.
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        layout_raiz.addWidget(scroll)
+        self.abas_simulacao = QTabWidget()
+        layout_raiz.addWidget(self.abas_simulacao, 1)
+        self.scroll_manejo, layout = self._nova_aba_simulacao("Manejo e cenários")
+        self.scroll_parametros, layout_parametros = self._nova_aba_simulacao("Dados e parâmetros")
+        self.scroll_comparacao, self._layout_comparacao = self._nova_aba_simulacao("Comparação")
 
-        conteudo = QWidget()
-        layout = QVBoxLayout(conteudo)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-        scroll.setWidget(conteudo)
+        self._grid_parametros = QGridLayout()
+        self._grid_parametros.setSpacing(16)
+        layout_parametros.addLayout(self._grid_parametros)
+        self.cartao_classes = Cartao("Parâmetros de manejo")
+        self._montar_secao_classes_manejo(self.cartao_classes.corpo)
+        self.cartao_colunas = Cartao("Dados de entrada e distribuição")
+        self._montar_secao_colunas_ifc(self.cartao_colunas.corpo)
+        layout_parametros.addStretch(1)
 
-        cartao_classes = Cartao("Classes diamétricas e manejo")
-        layout.addWidget(cartao_classes)
-        self._montar_secao_classes_manejo(cartao_classes.corpo)
-
-        # Uma única coluna mantém todos os cartões dentro da área útil da
-        # tela, inclusive em janelas menores e com a barra lateral aberta.
-        # Os formulários internos também usam no máximo dois pares por
-        # linha (ver as seções abaixo), portanto não impõem largura mínima
-        # maior que a viewport.
         self._grid = QGridLayout()
         self._grid.setColumnStretch(0, 1)
+        self._grid.setSpacing(16)
         layout.addLayout(self._grid)
-
-        # Rowspan 2 (não só a linha 0) — sobra espaço embaixo de "Eventos
-        # de manejo" (mais curto) na coluna ao lado, em vez de forçar a
-        # linha 0 sozinha a esticar até a altura deste cartão (que cresceu:
-        # agora também tem forma/escala da distribuição + a tabela de
-        # agregação opcional). Guardado em self —
-        # _ao_alternar_multiplos_cenarios encolhe o rowspan de volta pra 1
-        # enquanto "Cenários" precisa da linha 1.
-        self.cartao_colunas = Cartao("Parâmetros da Simulação")
-        self._grid.addWidget(self.cartao_colunas, 0, 0)
-        self._montar_secao_colunas_ifc(self.cartao_colunas.corpo)
-
-        # Guardado em self (não só local) — _ao_alternar_multiplos_cenarios
-        # move o cartão de Colunas entre rowspan 1/2, nunca este.
-        self.cartao_eventos = Cartao("Eventos de manejo")
-        self._grid.addWidget(self.cartao_eventos, 1, 0)
+        self.cartao_eventos = Cartao("1. Definir o manejo")
+        self._grid.addWidget(self.cartao_eventos, 0, 0)
         self._montar_secao_eventos(self.cartao_eventos.corpo)
-
-        # Montado aqui mas só colocado no grid (aparece embaixo de
-        # "Colunas da Base IFC", ao lado de "Eventos de manejo") quando o
-        # checkbox "Múltiplos cenários" é marcado — ver
-        # _ao_alternar_multiplos_cenarios.
-        self.cartao_cenarios = Cartao("Cenários (múltiplos)")
+        self.cartao_cenarios = Cartao("2. Organizar e gerar os cenários")
+        self._grid.addWidget(self.cartao_cenarios, 1, 0)
         self._montar_secao_cenarios(self.cartao_cenarios.corpo)
         self.cartao_cenarios.setVisible(False)
+
+        self._montar_secao_ranking_cenarios(self._layout_comparacao)
+        self._layout_comparacao.addStretch(1)
 
         # Resultados em janela própria: a tela principal fica dedicada à
         # configuração/execução. Abre pelo botão "Gráficos" ou por duplo
@@ -1002,13 +956,50 @@ class TelaSimulacao(TelaBase):
 
         layout.addStretch(1)
         self._layout_simulacao_lado_a_lado = None
+        self._padronizar_controles_simulacao()
         self._atualizar_layout_responsivo()
+
+    def _padronizar_controles_simulacao(self):
+        for painel in (self.cartao_classes, self.cartao_colunas, self.cartao_eventos,
+                       self.cartao_cenarios, self.painel_ranking_kpi, self.painel_ranking_talhao):
+            for campo in painel.findChildren(QLineEdit):
+                if isinstance(campo.parent(), QSpinBox):
+                    continue
+                campo.setMinimumHeight(32)
+                campo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            for combo in painel.findChildren(QComboBox):
+                combo.setMinimumHeight(32)
+                combo.setMinimumContentsLength(6)
+                combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+                combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _nova_aba_simulacao(self, titulo):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        conteudo = QWidget()
+        layout = QVBoxLayout(conteudo)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
+        scroll.setWidget(conteudo)
+        self.abas_simulacao.addTab(scroll, titulo)
+        return scroll, layout
+
+    @staticmethod
+    def _dica_layout(layout, texto):
+        dica = QLabel(texto)
+        dica.setWordWrap(True)
+        qss.aplicar_variante(dica, "dica")
+        layout.addWidget(dica)
+        return dica
 
     def _montar_secao_classes_manejo(self, container):
         """Parâmetros globais usados diretamente na geração da simulação."""
         layout = QGridLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(6)
+        layout.setVerticalSpacing(12)
         layout.setColumnStretch(1, 1)
 
         self.entry_primeira_classe = QLineEdit()
@@ -1044,7 +1035,9 @@ class TelaSimulacao(TelaBase):
         layout.addWidget(self.combo_base_calculo_mip, 6, 1)
 
         self.checkbox_ajuste_manejo = QCheckBox(
-            "Ajustar Raleio/1º/2º Desbaste quando o ano-calendário já passou")
+            "Ajustar manejos cujo ano já passou")
+        self.checkbox_ajuste_manejo.setToolTip(
+            "Ajustar as idades de Raleio e Desbastes quando o ano-calendário previsto já passou.")
         layout.addWidget(self.checkbox_ajuste_manejo, 7, 0, 1, 2)
 
         barra_acoes = QHBoxLayout()
@@ -1065,6 +1058,9 @@ class TelaSimulacao(TelaBase):
         # Simulação"), não mais num cartão "Distribuição diamétrica" à
         # parte.
         layout = QGridLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(12)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(3, 1)
 
@@ -1139,7 +1135,7 @@ class TelaSimulacao(TelaBase):
         # _colunas_volume_classes_marcadas/_tipos_agregacao_volume_marcadas.
         # Estado persistido (obter/salvar_usar_tabela_agregacao_volume),
         # igual as colunas/agregação escolhidas dentro da tabela.
-        self.checkbox_tabela_agregacao = QCheckBox("Tabela de agregação")
+        self.checkbox_tabela_agregacao = QCheckBox("Agregar volumes por sortimento")
         self.checkbox_tabela_agregacao.setToolTip(
             "Liga a etapa de volume por sortimento (soma/média das colunas por classe "
             "diamétrica dentro de cada sortimento cadastrado em Configurações) — desligado, a "
@@ -1177,16 +1173,90 @@ class TelaSimulacao(TelaBase):
             "com a agregação (Soma/Média) escolhida por linha, independente entre campos. Com "
             "2+ marcados, cada coluna de sortimento vem prefixada com o nome do campo.")
         self.tabela_volume_classes.itemChanged.connect(self._ao_mudar_selecao_coluna)
-        layout.addWidget(emoldurar_tabela(self.tabela_volume_classes), 7, 0, 1, 4)
+        self._moldura_volume_classes = emoldurar_tabela(self.tabela_volume_classes)
+        layout.addWidget(self._moldura_volume_classes, 7, 0, 1, 4)
+        self._moldura_volume_classes.setVisible(False)
         self.tabela_volume_classes.setVisible(False)
 
+        # Rótulos acima dos campos permitem duas colunas alinhadas sem
+        # reservar largura para quatro colunas de rótulo/campo.
+        campos = []
+        for linha in range(6):
+            for coluna in (0, 2):
+                rotulo = layout.itemAtPosition(linha, coluna).widget()
+                campo = layout.itemAtPosition(linha, coluna + 1).widget()
+                campos.append((linha, coluna // 2, rotulo, campo))
+        for _, _, rotulo, campo in campos:
+            layout.removeWidget(rotulo)
+            layout.removeWidget(campo)
+        layout.removeWidget(self.checkbox_tabela_agregacao)
+        layout.removeWidget(self._moldura_volume_classes)
+        for linha, coluna, rotulo, campo in campos:
+            layout.addWidget(rotulo, linha * 2, coluna)
+            layout.addWidget(campo, linha * 2 + 1, coluna)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 0)
+        layout.addWidget(self.checkbox_tabela_agregacao, 12, 0, 1, 2)
+        layout.addWidget(self._moldura_volume_classes, 13, 0, 1, 2)
+
     def _ao_alternar_tabela_agregacao(self, marcado):
+        self._moldura_volume_classes.setVisible(marcado)
         self.tabela_volume_classes.setVisible(marcado)
         self._ao_mudar_selecao_coluna()
 
+    def _montar_opcoes_manejos(self, layout, primeira_linha, automatico=False):
+        checks = {}
+        for indice, (chave, rotulo) in enumerate((("raleio", "Raleio"),
+                ("desbaste_1", "1º Desbaste"), ("desbaste_2", "2º Desbaste"),
+                ("corte_raso", "Corte Raso"))):
+            linha = primeira_linha + indice
+            anterior = layout.itemAtPosition(linha, 0).widget()
+            layout.removeWidget(anterior)
+            anterior.deleteLater()
+            check = QCheckBox(rotulo)
+            check.setChecked(True)
+            check.setToolTip("Desmarque para não realizar esta intervenção. Os valores preenchidos serão preservados.")
+            layout.addWidget(check, linha, 0)
+            campos = [layout.itemAtPosition(linha, col).widget()
+                      for col in range(1, 6 if automatico else 3)
+                      if layout.itemAtPosition(linha, col) is not None]
+            def alternar(marcado, campos=campos):
+                for campo in campos:
+                    campo.setEnabled(marcado)
+                if hasattr(self, "botao_gerar"):
+                    self._ao_mudar_selecao_coluna()
+            check.toggled.connect(alternar)
+            checks[chave] = check
+            for campo in campos:
+                if isinstance(campo, QLineEdit):
+                    campo.textChanged.connect(lambda _texto: self._ao_mudar_selecao_coluna()
+                                              if hasattr(self, "botao_gerar") else None)
+        layout.addWidget(QLabel("Realizar manejo"), primeira_linha - 1, 0)
+        return checks
+
     def _montar_secao_eventos(self, container):
-        layout = QGridLayout(container)
+        principal = QVBoxLayout(container)
+        principal.setContentsMargins(0, 0, 0, 0)
+        principal.setSpacing(12)
+        linha_modo = QHBoxLayout()
+        linha_modo.addWidget(QLabel("Modo de simulação"))
+        self.combo_modo_simulacao = QComboBox()
+        self.combo_modo_simulacao.addItems([
+            "Cenário único", "Múltiplos cenários — manual", "Múltiplos cenários — grade automática"])
+        linha_modo.addWidget(self.combo_modo_simulacao, 1)
+        principal.addLayout(linha_modo)
+        self.label_dica_modo = self._dica_layout(principal,
+            "Desmarque os manejos que não serão realizados. Desmarque todos para simular sem manejo.")
+        self._painel_eventos_manuais = QWidget()
+        self._painel_eventos_manuais.setObjectName("CartaoCorpo")
+        principal.addWidget(self._painel_eventos_manuais)
+        layout = QGridLayout(self._painel_eventos_manuais)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(12)
         layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 1)
 
         # Sempre visíveis nos dois modos: geração única usa esses valores
         # direto (botão "Gerar simulação"); "Múltiplos cenários" marcado
@@ -1199,6 +1269,7 @@ class TelaSimulacao(TelaBase):
             "Gere e compare várias combinações de idades e intensidades de manejo.")
         self.checkbox_multiplos_cenarios.toggled.connect(self._ao_alternar_multiplos_cenarios)
         layout.addWidget(self.checkbox_multiplos_cenarios, 0, 0, 1, 3)
+        self.checkbox_multiplos_cenarios.hide()
 
         # Segundo modo de popular "Cenários (múltiplos)" — em vez de montar
         # cada linha à mão (checkbox acima), o usuário dá uma faixa de
@@ -1218,9 +1289,10 @@ class TelaSimulacao(TelaBase):
             "combinações fora dessa ordem são descartadas. Raleio/1º/2º Desbaste são opcionais: "
             "deixe os 3 campos de idade (mín/máx/passo) daquele manejo em branco pra tratá-lo "
             "como \"não feito\" em toda a grade — a intensidade fica sempre 0%, os combobox de "
-            "intensidade dele são ignorados. Corte Raso continua obrigatório.")
+            "intensidade dele são ignorados. Corte Raso também é opcional.")
         self.checkbox_grade_automatica.toggled.connect(self._ao_alternar_grade_automatica)
         layout.addWidget(self.checkbox_grade_automatica, 1, 0, 1, 3)
+        self.checkbox_grade_automatica.hide()
 
         layout.addWidget(QLabel("Idade (anos)"), 2, 1)
         layout.addWidget(QLabel("Intensidade"), 2, 2)
@@ -1233,6 +1305,15 @@ class TelaSimulacao(TelaBase):
         # Corte Raso não tem intensidade própria (colheita total) — só a
         # idade, sem combobox de intensidade.
         self.entry_idade_corte_raso = self._linha_idade(layout, 6, "Corte Raso")
+        layout.addWidget(QLabel("Colheita total"), 6, 2)
+        self.checks_manejos = self._montar_opcoes_manejos(layout, 3)
+        self.combo_modo_simulacao.currentIndexChanged.connect(self._selecionar_modo_simulacao)
+
+    def _selecionar_modo_simulacao(self, indice):
+        # Conserva os dois estados usados pelo pipeline e pelas ações existentes.
+        self.checkbox_multiplos_cenarios.setChecked(indice == 1)
+        self.checkbox_grade_automatica.setChecked(indice == 2)
+        self._atualizar_visibilidade_cenarios()
 
     def _ao_alternar_multiplos_cenarios(self, marcado):
         if marcado:
@@ -1251,10 +1332,21 @@ class TelaSimulacao(TelaBase):
         self._atualizar_visibilidade_cenarios()
 
     def _atualizar_visibilidade_cenarios(self):
-        # Os cartões permanecem em uma coluna. "Cenários" ocupa a linha
-        # reservada entre Eventos e Gráfico quando qualquer um dos modos
-        # de múltiplos cenários estiver ligado.
         marcado = self.checkbox_multiplos_cenarios.isChecked() or self.checkbox_grade_automatica.isChecked()
+        automatico = self.checkbox_grade_automatica.isChecked()
+        indice = 2 if automatico else (1 if marcado else 0)
+        self.combo_modo_simulacao.blockSignals(True)
+        self.combo_modo_simulacao.setCurrentIndex(indice)
+        self.combo_modo_simulacao.blockSignals(False)
+        self._painel_eventos_manuais.setVisible(not automatico)
+        self.painel_grade_cenarios.setVisible(automatico)
+        self.painel_cenario_manual.setVisible(marcado and not automatico)
+        dicas = [
+            "Desmarque os manejos que não serão realizados. Desmarque todos para simular sem manejo.",
+            "Preencha o manejo e dê um nome ao cenário abaixo. Repita para adicionar outras combinações.",
+            "Defina os intervalos abaixo para criar as combinações de idades e intensidades.",
+        ]
+        self.label_dica_modo.setText(dicas[indice])
         self.cartao_cenarios.setVisible(marcado)
         self.botao_gerar.setVisible(not marcado)
         self._atualizar_layout_responsivo(forcar=True)
@@ -1265,31 +1357,24 @@ class TelaSimulacao(TelaBase):
             self._atualizar_layout_responsivo()
 
     def _atualizar_layout_responsivo(self, forcar=False):
-        """Mantém Eventos ao lado de Parâmetros sem reintroduzir overflow.
-
-        Abaixo do limite os cartões voltam a uma coluna; acima dele usam
-        duas colunas. Cenários e gráfico continuam sempre na largura toda.
-        """
+        """Empilha parâmetros em larguras menores, sem mover o fluxo de cenários."""
         lado_a_lado = self.width() >= 1120
         if not forcar and lado_a_lado == self._layout_simulacao_lado_a_lado:
             return
         self._layout_simulacao_lado_a_lado = lado_a_lado
-        for widget in (
-                self.cartao_colunas, self.cartao_eventos, self.cartao_cenarios):
-            self._grid.removeWidget(widget)
+        for widget in (self.cartao_colunas, self.cartao_classes):
+            self._grid_parametros.removeWidget(widget)
 
         if lado_a_lado:
-            self._grid.setColumnStretch(0, 2)
-            self._grid.setColumnStretch(1, 1)
-            self._grid.addWidget(self.cartao_colunas, 0, 0)
-            self._grid.addWidget(self.cartao_eventos, 0, 1)
-            self._grid.addWidget(self.cartao_cenarios, 1, 0, 1, 2)
+            self._grid_parametros.setColumnStretch(0, 2)
+            self._grid_parametros.setColumnStretch(1, 1)
+            self._grid_parametros.addWidget(self.cartao_colunas, 0, 0)
+            self._grid_parametros.addWidget(self.cartao_classes, 0, 1)
         else:
-            self._grid.setColumnStretch(0, 1)
-            self._grid.setColumnStretch(1, 0)
-            self._grid.addWidget(self.cartao_colunas, 0, 0)
-            self._grid.addWidget(self.cartao_eventos, 1, 0)
-            self._grid.addWidget(self.cartao_cenarios, 2, 0)
+            self._grid_parametros.setColumnStretch(0, 1)
+            self._grid_parametros.setColumnStretch(1, 0)
+            self._grid_parametros.addWidget(self.cartao_colunas, 0, 0)
+            self._grid_parametros.addWidget(self.cartao_classes, 1, 0)
         if hasattr(self, "_grid_rankings"):
             self._atualizar_layout_rankings_responsivo(lado_a_lado, forcar=forcar)
 
@@ -1311,11 +1396,14 @@ class TelaSimulacao(TelaBase):
             self._grid_rankings.addWidget(self.painel_ranking_talhao, 1, 0)
 
     def _montar_secao_executar(self, layout, layout_raiz):
-        # Prontidão/progresso pertencem ao conteúdo rolável. As ações são
-        # montadas num rodapé fixo fora do scroll, seguindo a tela Modelos.
+        # Estado e ações permanecem visíveis ao navegar entre as abas.
+        rodape = QWidget()
+        layout_rodape = QVBoxLayout(rodape)
+        layout_rodape.setContentsMargins(16, 8, 16, 12)
+        layout_rodape.setSpacing(8)
         self.label_prontidao = QLabel("")
         self.label_prontidao.setWordWrap(True)
-        layout.addWidget(self.label_prontidao)
+        layout_rodape.addWidget(self.label_prontidao)
 
         # core/simulacao.py:gerar_populacao não expõe progress_callback —
         # instrumentar isso pra progresso numérico real é mudança de
@@ -1324,29 +1412,46 @@ class TelaSimulacao(TelaBase):
         self.progressbar = QProgressBar()
         self.progressbar.setRange(0, 0)
         self.progressbar.setVisible(False)
-        layout.addWidget(self.progressbar)
+        layout_rodape.addWidget(self.progressbar)
 
         self.label_status = QLabel("")
-        layout.addWidget(self.label_status)
+        self.label_status.setWordWrap(True)
+        layout_rodape.addWidget(self.label_status)
 
-        rodape = QWidget()
-        linha_botoes = QHBoxLayout(rodape)
-        linha_botoes.setContentsMargins(12, 8, 12, 12)
-        linha_botoes.addStretch(1)
+        linha_botoes = QHBoxLayout()
+        linha_botoes.setSpacing(8)
+        layout_rodape.addLayout(linha_botoes)
         self.botao_gerar = QPushButton("Gerar simulação")
         qss.aplicar_variante(self.botao_gerar, "salvar")
         icones.aplicar_icone(self.botao_gerar, "gerar", cor="white")
         self.botao_gerar.clicked.connect(self.gerar)
-        linha_botoes.addWidget(self.botao_gerar)
         self.botao_graficos = QPushButton("Gráficos")
         icones.aplicar_icone(self.botao_graficos, "simulacao")
         self.botao_graficos.clicked.connect(self._abrir_janela_graficos)
         linha_botoes.addWidget(self.botao_graficos)
-        self.botao_exportar = QPushButton("Exportar para Excel...")
+        self.botao_consulta_mapa = QPushButton("Tabela e filtros...")
+        self.botao_consulta_mapa.clicked.connect(self._abrir_consulta_mapa)
+        linha_botoes.addWidget(self.botao_consulta_mapa)
+        self.botao_exportar = QPushButton("Exportar Excel…")
         icones.aplicar_icone(self.botao_exportar, "exportar")
         self.botao_exportar.clicked.connect(self.exportar_excel)
         linha_botoes.addWidget(self.botao_exportar)
+        linha_botoes.addStretch(1)
+        linha_botoes.addWidget(self.botao_gerar)
         layout_raiz.addWidget(rodape)
+
+    def _abrir_consulta_mapa(self, _checked=False):
+        if (self._gerando or self._gerando_lote or
+                self._thread_exportar_cenarios_banco is not None and self._thread_exportar_cenarios_banco.isRunning()):
+            QMessageBox.information(self, "Simulação", "Aguarde a operação em andamento para consultar os resultados.")
+            return
+        if not projeto.projeto_aberto():
+            QMessageBox.information(self, "Simulação", "Crie ou abra um projeto primeiro.")
+            return
+        from ..widgets.mapa_dialogs import DialogoConsultaSimulacao
+        dialogo = DialogoConsultaSimulacao(self)
+        dialogo.exec()
+        dialogo.deleteLater()
 
     def _abrir_janela_graficos(self, _checked=False):
         self._atualizar_grafico_resultado()
@@ -1637,8 +1742,16 @@ class TelaSimulacao(TelaBase):
         exatamente como hoje."""
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         self._montar_painel_grade_cenarios(layout)
+        self.painel_cenario_manual = QWidget()
+        self.painel_cenario_manual.setObjectName("CartaoCorpo")
+        self.painel_cenario_manual.setVisible(False)
+        layout.addWidget(self.painel_cenario_manual)
+        layout_manual = QVBoxLayout(self.painel_cenario_manual)
+        layout_manual.setContentsMargins(0, 0, 0, 0)
+        self._dica_layout(layout_manual, "Adicionar usa as idades e intensidades do cartão de manejo acima.")
 
         # Desligado por padrão: o MIP contínuo (aba Ingressos) exige um
         # ajuste scipy.optimize.curve_fit POR TALHÃO (CPU-bound, não dá pra
@@ -1654,7 +1767,6 @@ class TelaSimulacao(TelaBase):
             "talhão, uma etapa lenta que a maioria dos lotes não precisa. Religue só se for "
             "usar o MIP de cada cenário gerado (aba Ingressos)."
         )
-        layout.addWidget(self.checkbox_calcular_mip_lote)
 
         self.tabela_cenarios = Tabela(
             colunas=(
@@ -1665,38 +1777,45 @@ class TelaSimulacao(TelaBase):
                 "nome": 110, "idade_raleio": 65, "intensidade_raleio": 80, "idade_desbaste_1": 80,
                 "intensidade_desbaste_1": 95, "idade_desbaste_2": 80, "intensidade_desbaste_2": 95,
                 "idade_corte_raso": 85, "status": 90},
+            rotulos={
+                "nome": "Cenário", "idade_raleio": "Raleio\n(anos)",
+                "intensidade_raleio": "Raleio\n(%)", "idade_desbaste_1": "1º Desbaste\n(anos)",
+                "intensidade_desbaste_1": "1º Desbaste\n(%)", "idade_desbaste_2": "2º Desbaste\n(anos)",
+                "intensidade_desbaste_2": "2º Desbaste\n(%)", "idade_corte_raso": "Corte raso\n(anos)",
+                "status": "Situação",
+            },
         )
-        self.tabela_cenarios.setMaximumHeight(170)
+        self.tabela_cenarios.setMinimumHeight(220)
+        self.tabela_cenarios.setMaximumHeight(320)
         self.tabela_cenarios.view.doubleClicked.connect(self._abrir_graficos_cenario_duplo_clique)
+        self.label_resumo_cenarios = QLabel("Cenários cadastrados: 0 · Gerados: 0")
+        qss.aplicar_variante(self.label_resumo_cenarios, "titulo")
+        layout.addWidget(self.label_resumo_cenarios)
         layout.addWidget(self.tabela_cenarios)
 
         linha_nome = QHBoxLayout()
         linha_nome.addWidget(QLabel("Nome do cenário"))
         self.entry_nome_cenario = QLineEdit()
+        self.entry_nome_cenario.setPlaceholderText("Ex.: Desbaste aos 12 anos")
         self.entry_nome_cenario.setToolTip(
             "\"Adicionar cenário\" usa os valores de idade/intensidade preenchidos ali em cima, "
             "em \"Eventos de manejo\" — ajuste os campos, dê um nome, adicione; troque os "
             "valores e adicione de novo pra próxima combinação.")
         linha_nome.addWidget(self.entry_nome_cenario)
-        layout.addLayout(linha_nome)
+        layout_manual.addLayout(linha_nome)
 
         # Em grade, os comandos quebram em várias linhas e não alargam o
         # cartão além da viewport (eram oito botões numa única linha).
-        linha_botoes = QGridLayout()
-        botoes_acao = []
         botao_adicionar = QPushButton("Adicionar cenário")
         icones.aplicar_icone(botao_adicionar, "adicionar")
         botao_adicionar.clicked.connect(self._adicionar_cenario)
-        botoes_acao.append(botao_adicionar)
         botao_excluir = QPushButton("Excluir selecionado(s)")
         qss.aplicar_variante(botao_excluir, "perigo")
         icones.aplicar_icone(botao_excluir, "excluir")
         botao_excluir.clicked.connect(self._excluir_cenarios_selecionados)
-        botoes_acao.append(botao_excluir)
-        botao_ativar = QPushButton("Ativar cenário selecionado")
+        botao_ativar = QPushButton("Usar cenário selecionado")
         icones.aplicar_icone(botao_ativar, "ativar_desativar")
         botao_ativar.clicked.connect(self._ativar_cenario_selecionado)
-        botoes_acao.append(botao_ativar)
         self.botao_gerar_lote = QPushButton("Gerar pendentes")
         qss.aplicar_variante(self.botao_gerar_lote, "salvar")
         icones.aplicar_icone(self.botao_gerar_lote, "gerar", cor="white")
@@ -1704,17 +1823,15 @@ class TelaSimulacao(TelaBase):
             "Roda o pipeline completo só nos cenários com status diferente de \"Gerado\" "
             "(\"Pendente\" ou \"Erro: ...\") — pula quem já foi gerado com sucesso. Continua de "
             "onde \"Parar\" deixou, sem refazer o que já está pronto. Pra regerar TUDO de novo "
-            "(inclusive os já \"Gerado\"), use \"Reiniciar\".")
+            "(inclusive os já \"Gerado\"), use \"Regerar todos\".")
         self.botao_gerar_lote.clicked.connect(lambda: self._gerar_todos_cenarios(somente_pendentes=True))
-        botoes_acao.append(self.botao_gerar_lote)
-        self.botao_reiniciar_lote = QPushButton("Reiniciar")
+        self.botao_reiniciar_lote = QPushButton("Regerar todos")
         icones.aplicar_icone(self.botao_reiniciar_lote, "redefinir")
         self.botao_reiniciar_lote.setToolTip(
             "Roda o pipeline completo em TODOS os cenários cadastrados de novo, inclusive os que "
             "já têm status \"Gerado\" — substitui o resultado anterior de cada um. Pra rodar só o "
             "que falta, use \"Gerar pendentes\".")
         self.botao_reiniciar_lote.clicked.connect(lambda: self._gerar_todos_cenarios(somente_pendentes=False))
-        botoes_acao.append(self.botao_reiniciar_lote)
         self.botao_parar_lote = QPushButton("Parar")
         qss.aplicar_variante(self.botao_parar_lote, "perigo")
         icones.aplicar_icone(self.botao_parar_lote, "parar")
@@ -1724,8 +1841,7 @@ class TelaSimulacao(TelaBase):
             "no meio de um cenário. O que já foi gerado fica salvo; o resto continua \"Pendente\" "
             "(ou \"Erro\"), pra retomar depois com \"Gerar pendentes\".")
         self.botao_parar_lote.clicked.connect(self._parar_geracao_lote)
-        botoes_acao.append(self.botao_parar_lote)
-        botao_exportar_cenarios = QPushButton("Exportar todos os cenários...")
+        botao_exportar_cenarios = QPushButton("Exportar cenários para Excel…")
         icones.aplicar_icone(botao_exportar_cenarios, "exportar")
         botao_exportar_cenarios.setToolTip(
             "Um Excel só com todos os cenários já \"Gerado\" (status na tabela acima) empilhados "
@@ -1735,8 +1851,7 @@ class TelaSimulacao(TelaBase):
             "uma aba (\"Simulação 2\", \"Simulação 3\", ...), mas nunca divide um cenário entre "
             "duas abas — um cenário sozinho maior que o limite fica de fora (avisado no final).")
         botao_exportar_cenarios.clicked.connect(self.exportar_todos_cenarios)
-        botoes_acao.append(botao_exportar_cenarios)
-        self.botao_exportar_cenarios_banco = QPushButton("Exportar todos os cenários (banco de dados)...")
+        self.botao_exportar_cenarios_banco = QPushButton("Exportar cenários para SQLite…")
         icones.aplicar_icone(self.botao_exportar_cenarios_banco, "exportar")
         self.botao_exportar_cenarios_banco.setToolTip(
             "Mesma ideia do \"Exportar todos os cenários\" acima, mas grava num arquivo .sqlite "
@@ -1744,12 +1859,23 @@ class TelaSimulacao(TelaBase):
             "cada linha) — sem limite de linhas por aba do Excel, pra quando o total empilhado de "
             "todos os cenários passa dos milhões de linhas.")
         self.botao_exportar_cenarios_banco.clicked.connect(self.exportar_todos_cenarios_banco)
-        botoes_acao.append(self.botao_exportar_cenarios_banco)
-        for indice, botao in enumerate(botoes_acao):
-            linha_botoes.addWidget(botao, indice // 2, indice % 2)
-        for coluna in range(2):
-            linha_botoes.setColumnStretch(coluna, 1)
-        layout.addLayout(linha_botoes)
+        linha_nome.addWidget(botao_adicionar)
+        selecao = QHBoxLayout()
+        selecao.addWidget(botao_ativar)
+        selecao.addWidget(botao_excluir)
+        selecao.addStretch(1)
+        layout.addLayout(selecao)
+        self._dica_layout(layout, "Selecione uma linha para usar o cenário. Dê dois cliques para abrir seus gráficos.")
+
+        titulo_execucao = QLabel("Executar o lote")
+        qss.aplicar_variante(titulo_execucao, "titulo")
+        layout.addWidget(titulo_execucao)
+        layout.addWidget(self.checkbox_calcular_mip_lote)
+        execucao = QHBoxLayout()
+        for botao in (self.botao_gerar_lote, self.botao_reiniciar_lote, self.botao_parar_lote):
+            execucao.addWidget(botao)
+        execucao.addStretch(1)
+        layout.addLayout(execucao)
 
         self.progressbar_cenarios = QProgressBar()
         self.progressbar_cenarios.setVisible(False)
@@ -1763,7 +1889,11 @@ class TelaSimulacao(TelaBase):
         self.label_status_cenarios.setWordWrap(True)
         layout.addWidget(self.label_status_cenarios)
 
-        self._montar_secao_ranking_cenarios(layout)
+        exportacao = QHBoxLayout()
+        exportacao.addWidget(botao_exportar_cenarios)
+        exportacao.addWidget(self.botao_exportar_cenarios_banco)
+        exportacao.addStretch(1)
+        layout.addLayout(exportacao)
 
     def _montar_painel_grade_cenarios(self, layout):
         """Painel do modo "Grade automática" (checkbox_grade_automatica,
@@ -1777,21 +1907,29 @@ class TelaSimulacao(TelaBase):
         essa lista; aqui só se escolhe o mín/máx dentro dela). Raleio/1º/2º
         Desbaste são opcionais — os 3 campos de idade em branco tratam
         aquele manejo como "não feito" em toda a grade (ver
-        _ler_evento_grade_opcional); Corte Raso continua obrigatório.
+        _ler_evento_grade_opcional); Corte Raso também é opcional.
         "Gerar grade de cenários" (_gerar_grade_cenarios) troca TODOS os
         cenários cadastrados pelo produto cartesiano dessas faixas — só as
         combinações com Raleio < 1º Desbaste < 2º Desbaste < Corte Raso
-        sobrevivem (ver _preencher_idades_puladas) —, nomeados "Cenário
+        sobrevivem (ver _validar_combinacao_manejos) —, nomeados "Cenário
         1".."Cenário N" — dali em diante é a mesma tabela/"Gerar todos os
         cenários"/ranking de sempre."""
         self.painel_grade_cenarios = QWidget()
+        self.painel_grade_cenarios.setObjectName("CartaoCorpo")
         self.painel_grade_cenarios.setVisible(False)
         layout.addWidget(self.painel_grade_cenarios)
 
         layout_grade = QVBoxLayout(self.painel_grade_cenarios)
         layout_grade.setContentsMargins(0, 0, 0, 8)
+        layout_grade.setSpacing(12)
+        self._dica_layout(layout_grade,
+            "Selecione os manejos e informe início, fim e passo das idades. Desmarque todos para criar um cenário sem manejo.")
 
         grade = QGridLayout()
+        grade.setHorizontalSpacing(12)
+        grade.setVerticalSpacing(12)
+        for coluna in range(1, 6):
+            grade.setColumnStretch(coluna, 1)
         grade.addWidget(QLabel("Idade mín."), 0, 1)
         grade.addWidget(QLabel("Idade máx."), 0, 2)
         grade.addWidget(QLabel("Idade passo"), 0, 3)
@@ -1811,6 +1949,7 @@ class TelaSimulacao(TelaBase):
         self.entry_idade_min_corte_raso, self.entry_idade_max_corte_raso, \
             self.entry_idade_passo_corte_raso = self._linha_grade_idade(grade, 4, "Corte Raso")
         layout_grade.addLayout(grade)
+        self.checks_manejos_grade = self._montar_opcoes_manejos(grade, 1, automatico=True)
 
         linha_botao = QHBoxLayout()
         botao_gerar_grade = QPushButton("Gerar grade de cenários")
@@ -1829,19 +1968,22 @@ class TelaSimulacao(TelaBase):
     def _linha_grade_evento(grade, linha, rotulo):
         grade.addWidget(QLabel(rotulo), linha, 0)
         entry_min = QLineEdit()
-        entry_min.setFixedWidth(55)
+        entry_min.setMinimumWidth(55)
+        entry_min.setPlaceholderText("Início")
         grade.addWidget(entry_min, linha, 1)
         entry_max = QLineEdit()
-        entry_max.setFixedWidth(55)
+        entry_max.setMinimumWidth(55)
+        entry_max.setPlaceholderText("Fim")
         grade.addWidget(entry_max, linha, 2)
         entry_passo = QLineEdit()
-        entry_passo.setFixedWidth(55)
+        entry_passo.setMinimumWidth(55)
+        entry_passo.setPlaceholderText("Passo")
         grade.addWidget(entry_passo, linha, 3)
         combo_min = QComboBox()
-        combo_min.setFixedWidth(90)
+        combo_min.setMinimumWidth(75)
         grade.addWidget(combo_min, linha, 4)
         combo_max = QComboBox()
-        combo_max.setFixedWidth(90)
+        combo_max.setMinimumWidth(75)
         grade.addWidget(combo_max, linha, 5)
         return entry_min, entry_max, entry_passo, combo_min, combo_max
 
@@ -1849,13 +1991,16 @@ class TelaSimulacao(TelaBase):
     def _linha_grade_idade(grade, linha, rotulo):
         grade.addWidget(QLabel(rotulo), linha, 0)
         entry_min = QLineEdit()
-        entry_min.setFixedWidth(55)
+        entry_min.setMinimumWidth(55)
+        entry_min.setPlaceholderText("Início")
         grade.addWidget(entry_min, linha, 1)
         entry_max = QLineEdit()
-        entry_max.setFixedWidth(55)
+        entry_max.setMinimumWidth(55)
+        entry_max.setPlaceholderText("Fim")
         grade.addWidget(entry_max, linha, 2)
         entry_passo = QLineEdit()
-        entry_passo.setFixedWidth(55)
+        entry_passo.setMinimumWidth(55)
+        entry_passo.setPlaceholderText("Passo")
         grade.addWidget(entry_passo, linha, 3)
         return entry_min, entry_max, entry_passo
 
@@ -1873,27 +2018,27 @@ class TelaSimulacao(TelaBase):
         de múltipla seleção — o KPI é sempre a SOMA de tudo que for
         selecionado, sem outro operador (único caso que precisava agora,
         não uma ferramenta de fórmula genérica)."""
-        separador = QFrame()
-        separador.setFrameShape(QFrame.Shape.HLine)
-        layout.addWidget(separador)
+        self._dica_layout(layout,
+            "Selecione os indicadores e a direção para comparar os cenários gerados. A comparação usa a soma dos indicadores selecionados.")
 
         self._container_rankings = QWidget()
         self._grid_rankings = QGridLayout(self._container_rankings)
         self._grid_rankings.setContentsMargins(0, 0, 0, 0)
         self._grid_rankings.setHorizontalSpacing(12)
+        self._grid_rankings.setVerticalSpacing(16)
         layout.addWidget(self._container_rankings)
 
-        self.painel_ranking_kpi = QWidget()
-        layout = QVBoxLayout(self.painel_ranking_kpi)
+        self.painel_ranking_kpi = Cartao("Comparação geral")
+        layout = QVBoxLayout(self.painel_ranking_kpi.corpo)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        rotulo = QLabel("Ranquear cenários por KPI")
-        qss.aplicar_variante(rotulo, "titulo")
+        rotulo = QLabel("Indicadores para comparação (KPI)")
         layout.addWidget(rotulo)
 
         self.lista_kpi_colunas = QListWidget()
         self.lista_kpi_colunas.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.lista_kpi_colunas.setMaximumHeight(110)
+        self.lista_kpi_colunas.setMinimumHeight(130)
+        self.lista_kpi_colunas.setMaximumHeight(180)
         self.lista_kpi_colunas.setToolTip(
             "Ctrl+clique (ou Shift+clique) pra escolher mais de uma — o KPI ranqueado é a SOMA "
             "de todas as colunas selecionadas (ex: marcar \"vet_corte\" e \"vet_desbaste\" dá o "
@@ -1904,6 +2049,7 @@ class TelaSimulacao(TelaBase):
         linha_direcao.addWidget(QLabel("Direção"))
         self.combo_kpi_direcao = QComboBox()
         self.combo_kpi_direcao.addItems(["Maior é melhor", "Menor é melhor"])
+        self.combo_kpi_direcao.setMinimumWidth(150)
         linha_direcao.addWidget(self.combo_kpi_direcao)
         botao_ranquear = QPushButton("Ranquear cenários")
         icones.aplicar_icone(botao_ranquear, "buscar")
@@ -1916,12 +2062,14 @@ class TelaSimulacao(TelaBase):
             colunas=("posicao", "cenario", "valor"),
             larguras={"posicao": 60, "cenario": 160, "valor": 120},
             tipos_iniciais={"posicao": "Inteiro", "valor": "Float"},
+            rotulos={"posicao": "Posição", "cenario": "Cenário", "valor": "Valor"},
         )
-        self.tabela_ranking_cenarios.setMaximumHeight(170)
+        self.tabela_ranking_cenarios.setMinimumHeight(220)
+        self.tabela_ranking_cenarios.setMaximumHeight(320)
         layout.addWidget(self.tabela_ranking_cenarios)
 
-        self.painel_ranking_talhao = QWidget()
-        layout_talhao = QVBoxLayout(self.painel_ranking_talhao)
+        self.painel_ranking_talhao = Cartao("Comparação por talhão")
+        layout_talhao = QVBoxLayout(self.painel_ranking_talhao.corpo)
         layout_talhao.setContentsMargins(0, 0, 0, 0)
         self._montar_secao_ranking_por_talhao(layout_talhao)
         self._layout_rankings_lado_a_lado = None
@@ -1943,8 +2091,9 @@ class TelaSimulacao(TelaBase):
         só os N melhores de cada um (spinbox ao lado) — e exportar_
         ranking_por_talhao exporta exatamente o que está mostrado ali
         (mesmo recorte), nunca mais."""
-        rotulo = QLabel("Ranquear por talhão (mesmo KPI/direção acima)")
-        qss.aplicar_variante(rotulo, "titulo")
+        rotulo = QLabel("Usa os indicadores e a direção da comparação geral.")
+        rotulo.setWordWrap(True)
+        qss.aplicar_variante(rotulo, "dica")
         layout.addWidget(rotulo)
 
         linha_top_n = QHBoxLayout()
@@ -1965,7 +2114,7 @@ class TelaSimulacao(TelaBase):
         icones.aplicar_icone(botao_ranquear_talhao, "buscar")
         botao_ranquear_talhao.clicked.connect(self._ranquear_cenarios_por_talhao)
         linha_botoes_talhao.addWidget(botao_ranquear_talhao)
-        botao_exportar_ranking_talhao = QPushButton("Exportar ranking por talhão para Excel...")
+        botao_exportar_ranking_talhao = QPushButton("Exportar ranking…")
         icones.aplicar_icone(botao_exportar_ranking_talhao, "exportar")
         botao_exportar_ranking_talhao.clicked.connect(self.exportar_ranking_por_talhao)
         botao_exportar_ranking_talhao.setToolTip(
@@ -1981,8 +2130,10 @@ class TelaSimulacao(TelaBase):
             colunas=("talhao", "posicao", "cenario", "valor"),
             larguras={"talhao": 100, "posicao": 60, "cenario": 160, "valor": 120},
             tipos_iniciais={"posicao": "Inteiro", "valor": "Float"},
+            rotulos={"talhao": "Talhão", "posicao": "Posição", "cenario": "Cenário", "valor": "Valor"},
         )
-        self.tabela_ranking_por_talhao.setMaximumHeight(220)
+        self.tabela_ranking_por_talhao.setMinimumHeight(220)
+        self.tabela_ranking_por_talhao.setMaximumHeight(320)
         layout.addWidget(self.tabela_ranking_por_talhao)
 
     def _linha_coluna_opcional(self, layout, linha, rotulo, coluna=0):
@@ -1996,10 +2147,11 @@ class TelaSimulacao(TelaBase):
     def _linha_evento(layout, linha, rotulo):
         layout.addWidget(QLabel(rotulo), linha, 0)
         entry_idade = QLineEdit()
-        entry_idade.setFixedWidth(60)
+        entry_idade.setMinimumWidth(80)
+        entry_idade.setPlaceholderText("Opcional")
         layout.addWidget(entry_idade, linha, 1)
         combo_intensidade = QComboBox()
-        combo_intensidade.setFixedWidth(100)
+        combo_intensidade.setMinimumWidth(100)
         layout.addWidget(combo_intensidade, linha, 2)
         return entry_idade, combo_intensidade
 
@@ -2009,7 +2161,8 @@ class TelaSimulacao(TelaBase):
         # idade, sem combobox de intensidade.
         layout.addWidget(QLabel(rotulo), linha, 0)
         entry_idade = QLineEdit()
-        entry_idade.setFixedWidth(60)
+        entry_idade.setMinimumWidth(80)
+        entry_idade.setPlaceholderText("Opcional")
         layout.addWidget(entry_idade, linha, 1)
         return entry_idade
 
@@ -2222,6 +2375,7 @@ class TelaSimulacao(TelaBase):
             self.checkbox_tabela_agregacao.setChecked(False)
             self.checkbox_tabela_agregacao.blockSignals(False)
             self.tabela_volume_classes.setVisible(False)
+            self._moldura_volume_classes.setVisible(False)
             self._opcoes_grafico_coluna = {"": (None, False)}
             self.grafico_resultado.mostrar_mensagem("Nenhum projeto aberto.")
             self._opcoes_tabela_pivo_coluna = {"": None}
@@ -2230,6 +2384,7 @@ class TelaSimulacao(TelaBase):
             self._opcoes_grafico_classe_coluna = {"": None}
             self.grafico_classe.mostrar_mensagem("Nenhum projeto aberto.")
             self.tabela_cenarios.definir_linhas([])
+            self.label_resumo_cenarios.setText("Cenários cadastrados: 0 · Gerados: 0")
             self._opcoes_kpi_coluna = {}
             self.lista_kpi_colunas.clear()
             self.tabela_ranking_cenarios.definir_linhas([])
@@ -2368,6 +2523,9 @@ class TelaSimulacao(TelaBase):
             conn,
             coluna_talhao_ifc=self.combo_coluna_talhao.currentText() or None,
             coluna_fustes_observados=self.combo_coluna_fustes_observados.currentText() or None,
+            exigir_manejos=any(self.checks_manejos[k].isChecked() and
+                               getattr(self, "entry_idade_" + k).text().strip()
+                               for k in ("raleio", "desbaste_1", "desbaste_2")),
         )
         if status["pronta"]:
             self._definir_status(self.label_prontidao, "Pronto pra gerar a simulação.", "sucesso")
@@ -2954,36 +3112,24 @@ class TelaSimulacao(TelaBase):
         return colunas, valores_por_id
 
     def _ler_valores_evento(self):
-        """Lê+valida os 7 campos de "Eventos de manejo" (idade/intensidade
-        de Raleio, 1º/2º Desbaste, idade de Corte Raso) — usado tanto por
-        gerar() (geração única) quanto por _adicionar_cenario() (grid de
-        múltiplos cenários). Devolve um dict com os 7 valores, ou None (já
-        com o QMessageBox de erro mostrado) se algo for inválido."""
+        valores = {}
         try:
-            idade_raleio = _ler_idade(self.entry_idade_raleio.text(), "Idade do Raleio")
-            idade_desbaste_1 = _ler_idade(self.entry_idade_desbaste_1.text(), "Idade do 1º Desbaste")
-            idade_desbaste_2 = _ler_idade(self.entry_idade_desbaste_2.text(), "Idade do 2º Desbaste")
-            idade_corte_raso = _ler_idade(self.entry_idade_corte_raso.text(), "Idade do Corte Raso")
-        except ValueError as e:
-            QMessageBox.warning(self, "Simulação", str(e))
+            for chave, rotulo in (("raleio", "Raleio"), ("desbaste_1", "1º Desbaste"),
+                                  ("desbaste_2", "2º Desbaste"), ("corte_raso", "Corte Raso")):
+                idade = (_ler_idade(getattr(self, "entry_idade_" + chave).text(),
+                                    "Idade do " + rotulo, opcional=True)
+                         if self.checks_manejos[chave].isChecked() else None)
+                valores["idade_" + chave] = idade
+                if chave != "corte_raso":
+                    valores["intensidade_" + chave] = (0.0 if idade is None else
+                        getattr(self, "_mapa_intensidade_" + chave)[
+                            getattr(self, "combo_intensidade_" + chave).currentText()])
+            simulacao.validar_idades_manejo({k: valores["idade_" + k] for k in self.checks_manejos})
+        except (ValueError, KeyError) as erro:
+            mensagem = str(erro) if isinstance(erro, ValueError) else "Selecione a intensidade dos manejos realizados."
+            QMessageBox.warning(self, "Simulação", mensagem)
             return None
-
-        try:
-            intensidade_raleio = self._mapa_intensidade_raleio[self.combo_intensidade_raleio.currentText()]
-            intensidade_desbaste_1 = self._mapa_intensidade_desbaste_1[
-                self.combo_intensidade_desbaste_1.currentText()]
-            intensidade_desbaste_2 = self._mapa_intensidade_desbaste_2[
-                self.combo_intensidade_desbaste_2.currentText()]
-        except KeyError:
-            QMessageBox.warning(self, "Simulação", "Selecione a intensidade de cada intervenção.")
-            return None
-
-        return {
-            "idade_raleio": idade_raleio, "intensidade_raleio": intensidade_raleio,
-            "idade_desbaste_1": idade_desbaste_1, "intensidade_desbaste_1": intensidade_desbaste_1,
-            "idade_desbaste_2": idade_desbaste_2, "intensidade_desbaste_2": intensidade_desbaste_2,
-            "idade_corte_raso": idade_corte_raso,
-        }
+        return valores
 
     def _ler_configuracao_comum(self):
         """Campos compartilhados por qualquer geração (única ou em lote) —
@@ -3097,19 +3243,21 @@ class TelaSimulacao(TelaBase):
                         self, "Simulação",
                         "Alguns cenários foram gerados numa versão anterior do app e ainda estão "
                         "no formato antigo — não aparecem em \"Ativar\"/\"Exportar\"/\"Ranquear\" "
-                        "até serem regenerados. Rode \"Reiniciar\" pra trazê-los pro formato atual.")
+                        "até serem regenerados. Rode \"Regerar todos\" pra trazê-los pro formato atual.")
         finally:
             conn.close()
         ids = [str(r[0]) for r in linhas]
         valores = [
             (
-                r[1], r[2], _formatar_intensidade(r[3]) if r[3] is not None else "",
-                r[4], _formatar_intensidade(r[5]) if r[5] is not None else "",
-                r[6], _formatar_intensidade(r[7]) if r[7] is not None else "", r[8], r[9],
+                r[1], r[2] if r[2] is not None else "Sem manejo", _formatar_intensidade(r[3]) if r[2] is not None and r[3] is not None else "—",
+                r[4] if r[4] is not None else "Sem manejo", _formatar_intensidade(r[5]) if r[4] is not None and r[5] is not None else "—",
+                r[6] if r[6] is not None else "Sem manejo", _formatar_intensidade(r[7]) if r[6] is not None and r[7] is not None else "—", r[8] if r[8] is not None else "Sem corte", r[9],
             )
             for r in linhas
         ]
         self.tabela_cenarios.definir_linhas(valores, ids=ids)
+        gerados = sum(r[9] == "Gerado" for r in linhas)
+        self.label_resumo_cenarios.setText(f"Cenários cadastrados: {len(linhas)} · Gerados: {gerados}")
 
     def _adicionar_cenario(self):
         nome = self.entry_nome_cenario.text().strip()
@@ -3205,7 +3353,7 @@ class TelaSimulacao(TelaBase):
                 f'WHERE cenario_id IN ({marcadores})', ids)
         conn.execute(f"DELETE FROM simulacao_cenarios WHERE id IN ({marcadores})", ids)
 
-    def _ler_faixa_idade(self, entry_min, entry_max, entry_passo, rotulo):
+    def _ler_faixa_idade(self, entry_min, entry_max, entry_passo, rotulo, opcional=False):
         """Lê+valida os 3 campos de faixa de idade (mín/máx/passo) do
         painel "Grade automática" (_montar_painel_grade_cenarios) pra um
         manejo — mesma validação de _ler_idade (inteiro >= 1) nos 3, mais
@@ -3213,6 +3361,8 @@ class TelaSimulacao(TelaBase):
         lados). Levanta ValueError (mensagem já pronta pra mostrar) em vez
         de devolver None — _gerar_grade_cenarios lê os 4 manejos em
         sequência dentro de um único try/except."""
+        if opcional and not any(e.text().strip() for e in (entry_min, entry_max, entry_passo)):
+            return [None]
         minimo = _ler_idade(entry_min.text(), f"Idade mínima do {rotulo}")
         maximo = _ler_idade(entry_max.text(), f"Idade máxima do {rotulo}")
         passo = _ler_idade(entry_passo.text(), f"Passo de idade do {rotulo}")
@@ -3238,18 +3388,17 @@ class TelaSimulacao(TelaBase):
             raise ValueError(f"Intensidade máxima do {rotulo} precisa ser maior ou igual à mínima.")
         return sorted({v for v in mapa.values() if minimo - 1e-9 <= v <= maximo + 1e-9})
 
-    def _ler_evento_grade_opcional(self, entry_min, entry_max, entry_passo, combo_min, combo_max, mapa, rotulo):
+    def _ler_evento_grade_opcional(self, entry_min, entry_max, entry_passo, combo_min, combo_max, mapa, rotulo, habilitado=True):
         """Faixa de idade+intensidade de um manejo OPCIONAL (Raleio/1º/2º
         Desbaste) no painel "Grade automática" — se os 3 campos de idade
         ficarem em branco, o manejo é tratado como "não feito" em toda a
         grade: devolve `([None], [0.0])` (idade "None" — preenchida
-        automaticamente depois pra cada combinação, ver
-        _preencher_idades_puladas — e intensidade sempre 0%, ignorando os
+        sem preencher uma idade artificial, com intensidade 0%, ignorando os
         combobox de intensidade mín/máx desse manejo). Do contrário
         (qualquer um dos 3 campos preenchido), funciona igual a antes:
         _ler_faixa_idade + _ler_faixa_intensidade, com os 3 campos de
         idade obrigatórios."""
-        if not entry_min.text().strip() and not entry_max.text().strip() and not entry_passo.text().strip():
+        if not habilitado or not any(e.text().strip() for e in (entry_min, entry_max, entry_passo)):
             return [None], [0.0]
         idades = self._ler_faixa_idade(entry_min, entry_max, entry_passo, rotulo)
         intensidades = self._ler_faixa_intensidade(combo_min, combo_max, mapa, rotulo)
@@ -3261,12 +3410,10 @@ class TelaSimulacao(TelaBase):
         produto cartesiano delas (itertools.product) — um cenário por
         combinação, nomeado "Cenário 1".."Cenário N". Raleio/1º/2º Desbaste
         são opcionais (deixar a idade em branco = manejo não feito, ver
-        _ler_evento_grade_opcional); Corte Raso continua obrigatório. Cada
-        combinação passa por _preencher_idades_puladas, que preenche a
-        idade dos manejos pulados com um valor sintético (não usado pra
-        nada além de manter a ordem — a intensidade 0% já garante que não
-        remove nada) e garante Raleio < 1º Desbaste < 2º Desbaste < Corte
-        Raso; combinações sem jeito de manter essa ordem são descartadas.
+        _ler_evento_grade_opcional); Corte Raso também é opcional. Cada
+        combinação passa por _validar_combinacao_manejos, que preserva
+        os manejos omitidos sem idade e valida somente os selecionados.
+        Combinações fora da ordem cronológica são descartadas.
         Só POPULA simulacao_cenarios; "Gerar todos os cenários" (já
         existente, botao_gerar_lote/_gerar_todos_cenarios) continua sendo
         quem roda o pipeline completo de cada linha, e o ranking
@@ -3277,33 +3424,31 @@ class TelaSimulacao(TelaBase):
             idades_raleio, intensidades_raleio = self._ler_evento_grade_opcional(
                 self.entry_idade_min_raleio, self.entry_idade_max_raleio, self.entry_idade_passo_raleio,
                 self.combo_intensidade_min_raleio, self.combo_intensidade_max_raleio,
-                self._mapa_intensidade_raleio, "Raleio")
+                self._mapa_intensidade_raleio, "Raleio",
+                habilitado=self.checks_manejos_grade["raleio"].isChecked())
             idades_desbaste_1, intensidades_desbaste_1 = self._ler_evento_grade_opcional(
                 self.entry_idade_min_desbaste_1, self.entry_idade_max_desbaste_1,
                 self.entry_idade_passo_desbaste_1, self.combo_intensidade_min_desbaste_1,
-                self.combo_intensidade_max_desbaste_1, self._mapa_intensidade_desbaste_1, "1º Desbaste")
+                self.combo_intensidade_max_desbaste_1, self._mapa_intensidade_desbaste_1, "1º Desbaste",
+                habilitado=self.checks_manejos_grade["desbaste_1"].isChecked())
             idades_desbaste_2, intensidades_desbaste_2 = self._ler_evento_grade_opcional(
                 self.entry_idade_min_desbaste_2, self.entry_idade_max_desbaste_2,
                 self.entry_idade_passo_desbaste_2, self.combo_intensidade_min_desbaste_2,
-                self.combo_intensidade_max_desbaste_2, self._mapa_intensidade_desbaste_2, "2º Desbaste")
+                self.combo_intensidade_max_desbaste_2, self._mapa_intensidade_desbaste_2, "2º Desbaste",
+                habilitado=self.checks_manejos_grade["desbaste_2"].isChecked())
             idades_corte_raso = self._ler_faixa_idade(
                 self.entry_idade_min_corte_raso, self.entry_idade_max_corte_raso,
-                self.entry_idade_passo_corte_raso, "Corte Raso")
+                self.entry_idade_passo_corte_raso, "Corte Raso", opcional=True) if self.checks_manejos_grade["corte_raso"].isChecked() else [None]
         except ValueError as e:
             QMessageBox.warning(self, "Simulação", str(e))
             return
 
-        # Preenche a idade dos manejos pulados (None) e só mantém
-        # combinações com a ordem cronológica correta — Raleio < 1º
-        # Desbaste < 2º Desbaste < Corte Raso (ver _preencher_idades_
-        # puladas) — cada faixa é lida independente, então o produto
-        # cartesiano puro geraria também combinações sem sentido
-        # silvicultural (ex: Corte Raso mais novo que o 2º Desbaste).
+        # Mantém ausentes os manejos omitidos e valida os selecionados.
         combinacoes = []
         for idade_raleio, int_raleio, idade_d1, int_d1, idade_d2, int_d2, idade_corte in itertools.product(
                 idades_raleio, intensidades_raleio, idades_desbaste_1, intensidades_desbaste_1,
                 idades_desbaste_2, intensidades_desbaste_2, idades_corte_raso):
-            preenchidas = _preencher_idades_puladas({
+            preenchidas = _validar_combinacao_manejos({
                 "raleio": idade_raleio, "desbaste_1": idade_d1, "desbaste_2": idade_d2,
                 "corte_raso": idade_corte,
             })
@@ -3318,8 +3463,7 @@ class TelaSimulacao(TelaBase):
             QMessageBox.warning(
                 self, "Simulação",
                 "Nenhuma combinação encontrada com essas faixas — lembre que a idade precisa "
-                "crescer na ordem Raleio < 1º Desbaste < 2º Desbaste < Corte Raso, então as "
-                "faixas de cada manejo precisam deixar espaço pra isso.")
+                "crescer entre os manejos selecionados. Ajuste suas faixas de idade.")
             return
         aviso_extra = ""
         if total > _LIMITE_AVISO_GRADE_CENARIOS:
@@ -3709,7 +3853,7 @@ class TelaSimulacao(TelaBase):
             if somente_pendentes:
                 QMessageBox.information(
                     self, "Simulação",
-                    "Nenhum cenário pendente — todos já foram gerados. Use \"Reiniciar\" pra "
+                    "Nenhum cenário pendente — todos já foram gerados. Use \"Regerar todos\" pra "
                     "gerar tudo de novo.")
             else:
                 QMessageBox.warning(self, "Simulação", "Nenhum cenário cadastrado — adicione ao menos um.")
@@ -4257,17 +4401,21 @@ def _gerar_uma_simulacao(
     return resultado
 
 
-def _ler_idade(texto, rotulo):
+def _ler_idade(texto, rotulo, opcional=False):
     texto = texto.strip()
     if not texto:
+        if opcional:
+            return None
         raise ValueError(f"{rotulo} é obrigatória.")
     try:
-        valor = int(float(texto.replace(",", ".")))
+        valor = float(texto.replace(",", "."))
     except ValueError:
+        raise ValueError(f"{rotulo} precisa ser um número inteiro.")
+    if not math.isfinite(valor) or not valor.is_integer():
         raise ValueError(f"{rotulo} precisa ser um número inteiro.")
     if valor < 1:
         raise ValueError(f"{rotulo} precisa ser maior que zero.")
-    return valor
+    return int(valor)
 
 
 def _formatar_intensidade(valor):

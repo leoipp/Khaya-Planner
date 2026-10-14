@@ -14,6 +14,7 @@ from ..core.db import conectar, conectar_caminho
 from ..theme import icones, qss
 from ..widgets.cartao import Cartao
 from ..widgets.tabela import emoldurar_tabela
+from ..widgets.dialogo_progresso import DialogoProgresso
 from .base import TelaBase
 
 
@@ -41,12 +42,42 @@ class _ThreadExportarResumo(QThread):
                 conn.close()
 
 
+class _ThreadResumoMapa(QThread):
+    progresso = Signal(int, int, str)
+
+    def __init__(self, origem, tabela, cfg, nome, parent=None):
+        super().__init__(parent)
+        self.origem, self.tabela, self.cfg, self.nome = origem, tabela, cfg, nome
+        self.resultado = None
+        self.erro = None
+
+    def run(self):
+        conn = None
+        try:
+            conn = conectar_caminho(self.origem)
+            self.resultado = resumos_cenarios.disponibilizar_no_mapa(
+                conn, self.tabela, self.cfg, self.nome, self.progresso.emit)
+            conn.commit()
+        except Exception as e:
+            self.erro = str(e)
+        finally:
+            if conn is not None:
+                conn.close()
+
+
+class _ProgressoResumoMapa(DialogoProgresso):
+    def reject(self):
+        # A publicação é atômica e não tem cancelamento no meio da escrita.
+        pass
+
+
 class TelaResumosCenarios(TelaBase):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._colunas = {}
         self._configs = {}
         self._thread = None
+        self._thread_mapa = None
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(8, 8, 8, 8)
         titulo = QLabel("Resumos de cenários")
@@ -152,7 +183,12 @@ class TelaResumosCenarios(TelaBase):
         acoes = QHBoxLayout(); previa = QPushButton("Gerar prévia"); exportar = QPushButton("Exportar SQLite...")
         icones.aplicar_icone(previa, "atualizar"); icones.aplicar_icone(exportar, "exportar")
         previa.clicked.connect(self._gerar_previa); exportar.clicked.connect(self._exportar)
-        acoes.addWidget(previa); acoes.addWidget(exportar); lay.addLayout(acoes); lay.addStretch()
+        acoes.addWidget(previa); acoes.addWidget(exportar); lay.addLayout(acoes)
+        self.botao_mapa = QPushButton("Disponibilizar tabela no mapa")
+        self.botao_mapa.setToolTip("Usar todos os cenários com estes filtros, agrupamentos, indicadores e pivô no join do mapa.")
+        self.botao_mapa.clicked.connect(self._disponibilizar_mapa)
+        lay.addWidget(self.botao_mapa)
+        lay.addStretch()
         scroll.setWidget(painel)
         return scroll
 
@@ -282,6 +318,58 @@ class TelaResumosCenarios(TelaBase):
         for i,linha in enumerate(amostra.itertuples(index=False,name=None)):
             for j,v in enumerate(linha): self.tabela_previa.setItem(i,j,QTableWidgetItem("" if v is None else str(v)))
         self.label_status.setText(f"Prévia: {len(df)} linha(s) nos primeiros 2 cenários; mostrando até 100.")
+
+    def _disponibilizar_mapa(self):
+        if self._thread_mapa is not None or self._thread is not None and self._thread.isRunning():
+            QMessageBox.information(self, "Resumo para mapa", "Aguarde a operação em andamento.")
+            return
+        try:
+            origem = str(projeto.caminho_trabalho())
+            cfg = self._cfg()
+            projeto.finalizar_sincronizacao_pendente()
+        except Exception as erro:
+            QMessageBox.warning(self, "Resumo para mapa", str(erro))
+            return
+        janela = self.window()
+        if hasattr(janela, 'travar_navegacao'):
+            janela.travar_navegacao(True)
+        self.botao_mapa.setEnabled(False)
+        dialogo = _ProgressoResumoMapa('Tabela de cenários para o mapa', 'Preparando o resumo completo com os filtros atuais…', self)
+        worker = _ThreadResumoMapa(origem, self.nome_tabela.text().strip(), cfg, self.nome_config.text().strip(), self)
+        self._thread_mapa = worker
+        def progresso(feito, total, nome):
+            dialogo.progressbar.setRange(0, total)
+            dialogo.progressbar.setValue(feito)
+            dialogo.label_detalhe.setText(f'{feito}/{total}: {nome}')
+        worker.progresso.connect(progresso)
+        worker.finished.connect(dialogo.accept)
+        try:
+            worker.start()
+            dialogo.exec()
+            if worker.erro:
+                QMessageBox.critical(self, 'Resumo para mapa', worker.erro)
+                return
+            projeto.sincronizar()
+            conn = conectar()
+            try:
+                from ..core import mapa_dados
+                colunas, linhas, total = mapa_dados.consultar(conn, worker.resultado['tabela'], limite=100)
+            finally:
+                conn.close()
+            self.tabela_previa.setRowCount(len(linhas))
+            self.tabela_previa.setColumnCount(len(colunas))
+            self.tabela_previa.setHorizontalHeaderLabels(colunas)
+            for i, linha in enumerate(linhas):
+                for j, valor in enumerate(linha):
+                    self.tabela_previa.setItem(i, j, QTableWidgetItem('' if valor is None else str(valor)))
+            self.label_status.setText(f"Tabela {worker.resultado['tabela']} disponível no mapa: {total} linhas em {worker.resultado['cenarios']} cenários; mostrando até 100. Use Join com cenários no Mapa.")
+        finally:
+            self._thread_mapa = None
+            self.botao_mapa.setEnabled(True)
+            if hasattr(janela, 'travar_navegacao'):
+                janela.travar_navegacao(False)
+            worker.deleteLater()
+            dialogo.deleteLater()
 
     def _exportar(self):
         caminho,_=QFileDialog.getSaveFileName(self,"Exportar resumo","","SQLite (*.sqlite *.db)")
