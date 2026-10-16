@@ -10,6 +10,8 @@ Variantes de botão (Accent/Salvar) são selecionadas por propriedade Qt
 dinâmica em vez de "estilo" ttk nomeado — ver widgets que usam
 `botao.setProperty("variante", "accent")` + `botao.style().polish(botao)`.
 """
+from pathlib import Path
+
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect
 
@@ -78,6 +80,7 @@ def _fonte(chave):
 
 def gerar(modo):
     c = tokens.PALETA_UI[modo]
+    icones_numericos = (Path(__file__).resolve().parents[2] / 'assets' / 'controles').as_posix()
     espaco_sm, espaco_md, espaco_xs, espaco_xl = (
         tokens.ESPACO_SM, tokens.ESPACO_MD, tokens.ESPACO_XS, tokens.ESPACO_XL)
 
@@ -303,6 +306,23 @@ def gerar(modo):
     /* Placeholder (12px/400 no spec) não tem seletor próprio no Qt Style
        Sheets — QLineEdit/QPlainTextEdit não expõem `::placeholder`; o
        texto de placeholder usa a cor/fonte que o Qt decide sozinho. */
+    QDoubleSpinBox[controles="mais_menos"] {{ padding-right: 30px; min-height: 24px; }}
+    QDoubleSpinBox[controles="mais_menos"]::up-button {{
+        subcontrol-origin: border; subcontrol-position: top right;
+        width: 26px; height: 17px;
+        background: {c["bg_widget"]}; border-left: 1px solid {c["borda"]};
+    }}
+    QDoubleSpinBox[controles="mais_menos"]::down-button {{
+        subcontrol-origin: border; subcontrol-position: bottom right;
+        width: 26px; height: 17px;
+        background: {c["bg_widget"]}; border-left: 1px solid {c["borda"]};
+    }}
+    QDoubleSpinBox[controles="mais_menos"]::up-arrow {{
+        image: url("{icones_numericos}/mais-{modo}.svg"); width: 12px; height: 12px;
+    }}
+    QDoubleSpinBox[controles="mais_menos"]::down-arrow {{
+        image: url("{icones_numericos}/menos-{modo}.svg"); width: 12px; height: 12px;
+    }}
     QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
     QSpinBox:focus, QDoubleSpinBox:focus {{
         border: 1px solid {c["accent"]};

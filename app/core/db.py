@@ -7,6 +7,14 @@ import sys
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS toragem_estado (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    dados TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS desdobro_estado (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    dados TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS modelos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,

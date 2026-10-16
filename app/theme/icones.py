@@ -84,7 +84,7 @@ _ACOES = {
     "expandir_barra_lateral": "list",
 }
 
-_CATALOGO = {**_NAVEGACAO, **_ACOES}
+_CATALOGO = {**_NAVEGACAO, **_ACOES, "desdobro": "tree-evergreen", "toragem": "tree-evergreen"}
 
 # Ícones de ação destrutiva (excluir um registro, remover um item de uma
 # lista/entrada) — vermelho por padrão (tokens.PALETA_STATUS["perigo"]),
