@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tela dedicada aos sortimentos comerciais e dimensões das toras."""
 
-from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QTabWidget, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from ..core import projeto
 from ..core.db import conectar
@@ -30,13 +30,23 @@ class TelaSortimentos(TelaBase):
         self._sortimento_atual_id = None
 
         raiz = QVBoxLayout(self)
-        raiz.setContentsMargins(tokens.ESPACO_SM, tokens.ESPACO_SM,
-                                tokens.ESPACO_SM, tokens.ESPACO_SM)
+        raiz.setContentsMargins(20, 20, 20, 20)
         raiz.setSpacing(tokens.ESPACO_LG)
-        raiz.addWidget(CabecalhoTela("Sortimentos"))
+        raiz.addWidget(CabecalhoTela("Sortimentos", "Defina as classes comerciais, os preços e as dimensões dos toretes."))
 
+        abas = QTabWidget()
+        abas.setDocumentMode(True)
+        abas.tabBar().setDrawBase(False)
+        raiz.addWidget(abas, 1)
+        pagina_classes, pagina_dimensoes = QWidget(), QWidget()
+        layout_classes = QVBoxLayout(pagina_classes)
+        layout_dimensoes = QVBoxLayout(pagina_dimensoes)
+        for layout in (layout_classes, layout_dimensoes):
+            layout.setContentsMargins(0, 12, 0, 0)
+        abas.addTab(pagina_classes, 'Classes comerciais')
+        abas.addTab(pagina_dimensoes, 'Dimensões dos toretes')
         cartao_sortimentos = Cartao("Sortimentos (classificação por diâmetro)")
-        raiz.addWidget(cartao_sortimentos, 1)
+        layout_classes.addWidget(cartao_sortimentos, 1)
         self._montar_secao_sortimentos(cartao_sortimentos.corpo)
         self.tabela_sortimentos.setMinimumHeight(240)
         self.tabela_sortimentos.setMaximumHeight(16777215)
@@ -44,7 +54,8 @@ class TelaSortimentos(TelaBase):
         cartao_sortimentos.layout().setStretch(2, 0)
 
         cartao_dimensoes = Cartao("Dimensões da tora")
-        raiz.addWidget(cartao_dimensoes)
+        layout_dimensoes.addWidget(cartao_dimensoes)
+        layout_dimensoes.addStretch(1)
         self._montar_secao_dimensoes_tora(cartao_dimensoes.corpo)
         barra = QHBoxLayout()
         barra.addStretch(1)

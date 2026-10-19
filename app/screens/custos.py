@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tela dedicada aos custos de formação florestal e de colheita."""
 
-from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QTabWidget, QFrame, QScrollArea, QVBoxLayout, QWidget
 
 from ..theme import tokens
 from ..widgets.cabecalho_tela import CabecalhoTela
@@ -49,23 +49,25 @@ class TelaCustos(TelaBase):
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(
-            tokens.ESPACO_SM, tokens.ESPACO_SM,
-            tokens.ESPACO_SM, tokens.ESPACO_SM)
-        raiz.setSpacing(tokens.ESPACO_SM)
-        raiz.addWidget(CabecalhoTela("Custos"))
+            20, 20, 20, 20)
+        raiz.setSpacing(16)
+        raiz.addWidget(CabecalhoTela("Custos", "Organize os custos de formação e colheita utilizados nas análises econômicas."))
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        raiz.addWidget(scroll, 1)
-
-        conteudo = QWidget()
-        layout_conteudo = QVBoxLayout(conteudo)
-        layout_conteudo.setContentsMargins(0, 0, tokens.ESPACO_SM, 0)
-        layout_conteudo.setSpacing(tokens.ESPACO_LG)
-        self._adicionar_card_formacao(layout_conteudo)
-        self._adicionar_card_colheita(layout_conteudo)
-        scroll.setWidget(conteudo)
+        abas = QTabWidget()
+        abas.setDocumentMode(True)
+        abas.tabBar().setDrawBase(False)
+        raiz.addWidget(abas, 1)
+        for titulo, montar in (('Formação florestal', self._adicionar_card_formacao),
+                                ('Colheita', self._adicionar_card_colheita)):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            conteudo = QWidget()
+            layout_conteudo = QVBoxLayout(conteudo)
+            layout_conteudo.setContentsMargins(0, 12, 4, 0)
+            montar(layout_conteudo)
+            scroll.setWidget(conteudo)
+            abas.addTab(scroll, titulo)
         self.recarregar_lista()
 
     def _adicionar_card_formacao(self, layout):

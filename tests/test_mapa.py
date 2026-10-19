@@ -106,14 +106,17 @@ class IntegracaoMapa(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_mapa_e_tela_inicial(self):
+    def test_visao_geral_inicial_e_acesso_ao_mapa(self):
         from app.window import JanelaPrincipal
         # A limpeza de órfãos do boot não deve apagar o projeto do teste.
         with patch.object(projeto, 'limpar_arquivos_orfaos'):
             janela = JanelaPrincipal()
-        self.assertEqual(janela._tela_atual, 'mapa')
+        self.assertEqual(janela._tela_atual, 'visao_geral')
+        self.assertNotIn('mapa', janela.telas)
+        janela.mostrar_tela('mapa')
         self.assertIsInstance(janela.telas['mapa'], TelaMapa)
         janela.close()
+        janela.deleteLater()
 
     def test_join_pela_interface_cores_e_persistencia(self):
         from app.widgets.mapa_dialogs import DialogoConsultaSimulacao, DialogoJoin, DialogoValoresUnicos

@@ -11,7 +11,7 @@ from pathlib import Path
 from importlib import import_module
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout,
     QWidget,
@@ -24,8 +24,10 @@ from .theme import tokens
 from .widgets.alternador_tema import AlternadorTema
 from .widgets.barra_lateral import BarraLateral, BotaoAlternarBarraLateral
 from .widgets.dialogo_progresso import DialogoProgresso
+from .widgets.busca_navegacao import BuscaNavegacao
 
 ITENS_NAVEGACAO = [
+    ("visao_geral", "Visão geral"),
     ("mapa", "Mapa"),
     ("modelos", "Modelos"),
     ("sortimentos", "Sortimentos"),
@@ -45,6 +47,7 @@ ITENS_NAVEGACAO = [
 # widgets invisíveis na abertura, adia imports pesados (matplotlib/pandas)
 # até a primeira visita à funcionalidade correspondente.
 FABRICAS_TELAS = {
+    "visao_geral": ("app.screens.visao_geral", "TelaVisaoGeral"),
     "mapa": ("app.screens.mapa", "TelaMapa"),
     "modelos": ("app.screens.modelos", "TelaModelos"),
     "sortimentos": ("app.screens.sortimentos", "TelaSortimentos"),
@@ -103,8 +106,9 @@ class JanelaPrincipal(QMainWindow):
         # 1150 (largura antiga) não sobra espaço suficiente pra barra de
         # navegação — os rótulos mais longos ("Construtor de Variáveis",
         # "Ingressos e Curvas de Distribuição") já deixavam isso apertado.
-        self.resize(1300, 700)
-        self.setMinimumSize(1050, 550)
+        area = self.screen().availableGeometry()
+        self.resize(min(1440, area.width() - 40), min(900, area.height() - 60))
+        self.setMinimumSize(1050, 600)
         self._aplicar_icone()
 
         core_projeto.definir_agendador_qt()
@@ -119,10 +123,14 @@ class JanelaPrincipal(QMainWindow):
         self._recargas_agendadas = set()
         self._tela_atual = None
         self._barra_lateral_visivel = True
+        self._navegacao_travada = False
+        self._dialogo_navegacao = None
 
         self._montar_central()
 
-        self.mostrar_tela("mapa")
+        self._atalho_busca = QShortcut(QKeySequence('Ctrl+K'), self)
+        self._atalho_busca.activated.connect(self._abrir_busca)
+        self.mostrar_tela("visao_geral")
         self._atualizar_titulo()
 
     def _aplicar_icone(self):
@@ -154,7 +162,8 @@ class JanelaPrincipal(QMainWindow):
 
         self._barra_lateral = BarraLateral(
             ITENS_NAVEGACAO, ao_selecionar_tela=self.mostrar_tela,
-            ao_novo_projeto=self.novo_projeto, ao_abrir_projeto=self.abrir_projeto)
+            ao_novo_projeto=self.novo_projeto, ao_abrir_projeto=self.abrir_projeto,
+            ao_buscar_tela=self._abrir_busca)
         self._container_barra_lateral = QWidget()
         layout_wrap = QVBoxLayout(self._container_barra_lateral)
         layout_wrap.setContentsMargins(0, 0, tokens.ESPACO_MD, 0)
@@ -199,6 +208,18 @@ class JanelaPrincipal(QMainWindow):
         novo_modo = "dark" if tema.obter().modo_atual() == "light" else "light"
         tema.obter().aplicar(novo_modo)
 
+    def _abrir_busca(self):
+        if self._navegacao_travada or self._dialogo_navegacao is not None:
+            return
+        dialogo = BuscaNavegacao(ITENS_NAVEGACAO, self)
+        self._dialogo_navegacao = dialogo
+        dialogo.telaEscolhida.connect(self.mostrar_tela)
+        try:
+            dialogo.exec()
+        finally:
+            self._dialogo_navegacao = None
+            dialogo.deleteLater()
+
     def definir_chrome_visivel(self, visivel):
         """Mostra/esconde a barra lateral (trilho + cartão) e o rodapé —
         usado pelo botão "Maximizar canvas" do Construtor de Variáveis, que
@@ -222,13 +243,26 @@ class JanelaPrincipal(QMainWindow):
         modulo_nome, classe_nome = FABRICAS_TELAS[chave]
         classe = getattr(import_module(modulo_nome), classe_nome)
         tela = classe()
+        if chave == 'visao_geral':
+            tela.navegar.connect(self._navegar_pela_visao)
+            tela.novoProjetoSolicitado.connect(self.novo_projeto)
+            tela.abrirProjetoSolicitado.connect(self.abrir_projeto)
         self._registrar_tela(chave, tela)
         # Os construtores atuais já carregam seu estado inicial. Marca a
         # revisão presente para não repetir a mesma carga logo em seguida.
         self._revisao_telas[chave] = core_projeto.revisao_dados()
         return tela
 
+    def _navegar_pela_visao(self, chave):
+        if self._navegacao_travada:
+            return
+        self.mostrar_tela(chave)
+        if chave == 'configuracoes':
+            self.telas[chave].abrir_aba_dados()
+
     def mostrar_tela(self, chave):
+        if self._navegacao_travada:
+            return
         if chave == self._tela_atual:
             return
         tela = self._obter_ou_criar_tela(chave)
@@ -260,23 +294,16 @@ class JanelaPrincipal(QMainWindow):
             self._revisao_telas[chave] = revisao_alvo
 
     def travar_navegacao(self, travada):
-        """Desabilita trocar/criar/abrir projeto E trocar de TELA enquanto
-        uma tela roda uma operação em segundo plano que segura o banco do
-        projeto atual. Trocar de projeto no meio dessa operação faria a
-        sincronização final gravar no arquivo errado; trocar de TELA
-        (ex: ir pra Configurações durante um "Gerar todos os cenários")
-        abriria uma segunda conexão sqlite3 no MESMO arquivo de trabalho
-        enquanto a thread de fundo ainda escreve nele — na melhor das
-        hipóteses "database is locked" (o busy_timeout de 30s da nova
-        conexão eventualmente estoura numa operação longa o bastante,
-        ex: sincronizar_linhas_formacao reconstruindo simulacao_talhao_
-        idade inteira), na pior "database schema has changed" (um DDL —
-        DROP+CREATE, ALTER TABLE — no meio de uma leitura da tela nova
-        invalida os prepared statements de QUALQUER conexão aberta no
-        arquivo, não só a que fez o DDL). mostrar_tela (chamada só quando
-        o usuário efetivamente clica um botão de navegação habilitado)
-        continua sem checar nada aqui — a trava é só desabilitar o
-        clique, não bloquear a troca em si."""
+        """Bloqueia projetos e navegação durante operações que usam o banco.
+
+        Menu, busca, atalhos e acesso programático às telas respeitam a
+        mesma trava. Uma busca aberta é fechada para impedir a troca de
+        tela enquanto uma thread altera o projeto atual.
+        """
+        self._navegacao_travada = travada
+        self._atalho_busca.setEnabled(not travada)
+        if travada and self._dialogo_navegacao is not None:
+            self._dialogo_navegacao.reject()
         self._barra_lateral.definir_estado_projeto(travada)
         self._barra_lateral.definir_navegacao_travada(travada)
 

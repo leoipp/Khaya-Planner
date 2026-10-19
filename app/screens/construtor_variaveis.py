@@ -46,6 +46,8 @@ from ..theme import icones
 from ..theme import manager as tema
 from ..theme import qss as tema_qss
 from ..widgets.tabela import Tabela
+from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.layout_fluxo import LayoutFluxo
 from .base import TelaBase
 
 TABELAS_ORIGEM = [simulacao.TABELA_POPULACAO, NOME_TABELA_BASE_IFC, NOME_TABELA_BASE_IFC_BYTREE]
@@ -334,6 +336,11 @@ class _CanvasConstrutor(QWidget):
         pintor = QPainter(self)
         pintor.setRenderHint(QPainter.RenderHint.Antialiasing)
         self._tela._pintar(pintor)
+        if not self._tela.nos:
+            pintor.setPen(QColor(tema.obter().cor_ui('fg_muted')))
+            pintor.drawText(self.rect().adjusted(24, 24, -24, -24),
+                           Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                           'Construa seu primeiro cálculo\n\nAdicione colunas ou modelos pela barra acima e conecte as entradas.')
         pintor.end()
 
     def mousePressEvent(self, evento):
@@ -427,7 +434,11 @@ class TelaConstrutorVariaveis(TelaBase):
         self._espessura_borda_no = preferencias.obter_espessura_borda_no()
 
         layout_raiz = QVBoxLayout(self)
-        layout_raiz.setContentsMargins(8, 8, 8, 8)
+        layout_raiz.setContentsMargins(20, 20, 20, 20)
+
+        layout_raiz.setSpacing(16)
+        self.cabecalho = CabecalhoTela('Construtor de Variáveis', 'Conecte dados e modelos para criar indicadores e cálculos reutilizáveis.')
+        layout_raiz.addWidget(self.cabecalho)
 
         # Painel lateral (fontes de nó + construtores salvos) foi
         # substituído por menus flutuantes/botões na barra acima do canvas
@@ -631,7 +642,7 @@ class TelaConstrutorVariaveis(TelaBase):
 
         # Só ícone (sem texto) — o rótulo que cada botão tinha antes vira
         # tooltip (ver _botao_icone), pra barra ficar compacta.
-        barra_zoom = QHBoxLayout()
+        barra_zoom = LayoutFluxo()
         self.combo_tabela_origem = QComboBox()
         self.combo_tabela_origem.addItems(TABELAS_ORIGEM)
         self.combo_tabela_origem.textActivated.connect(lambda _t: self._atualizar_colunas_disponiveis())
@@ -676,15 +687,18 @@ class TelaConstrutorVariaveis(TelaBase):
         botao_limpar.clicked.connect(self._limpar_canvas)
         barra_zoom.addWidget(botao_limpar)
         botao_previa = self._botao_icone("previa", "Prévia")
+        botao_previa.setText(' Prévia')
         botao_previa.clicked.connect(self.testar)
         barra_zoom.addWidget(botao_previa)
         botao_salvar = self._botao_icone("salvar", "Salvar construtor")
+        botao_salvar.setText(' Salvar')
+        tema_qss.aplicar_variante(botao_salvar, 'salvar')
+        icones.aplicar_icone(botao_salvar, 'salvar', cor='white')
         botao_salvar.clicked.connect(self.salvar_construtor)
         barra_zoom.addWidget(botao_salvar)
         botao_gerar_avulsa = self._botao_icone("gerar", "Gerar tabela nova (só desta vez)...")
         botao_gerar_avulsa.clicked.connect(self.gerar_tabela_nova_avulsa)
         barra_zoom.addWidget(botao_gerar_avulsa)
-        barra_zoom.addStretch(1)
         layout_canvas.addLayout(barra_zoom)
 
         self.canvas = _CanvasConstrutor(self)
@@ -732,6 +746,7 @@ class TelaConstrutorVariaveis(TelaBase):
         visibilidade: zoom/pan e o grafo continuam intactos, dá pra
         restaurar clicando de novo no mesmo botão."""
         self._canvas_maximizado = not self._canvas_maximizado
+        self.cabecalho.setVisible(not self._canvas_maximizado)
         janela = self.window()
         if self._canvas_maximizado:
             # Lembra se a prévia estava aberta antes de maximizar — sem

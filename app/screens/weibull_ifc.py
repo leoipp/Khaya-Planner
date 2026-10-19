@@ -20,6 +20,7 @@ Porte completo de app/screens/weibull_ifc.py (Tkinter).
 """
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
+    QScrollArea,
     QComboBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTabWidget,
     QVBoxLayout, QWidget,
 )
@@ -29,6 +30,7 @@ from ..core.db import conectar, conectar_caminho
 from ..theme import icones, qss
 from ..widgets.grafico_weibull import GraficoAjusteWeibull
 from ..widgets.importacao_dialogs import escolher_configuracao_ajuste_weibull
+from ..widgets.cabecalho_tela import CabecalhoTela
 from .base import TelaBase
 from .weibull import TelaWeibull
 
@@ -368,9 +370,13 @@ class TelaWeibullIFC(TelaBase):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+        layout.addWidget(CabecalhoTela("Weibull", "Ajuste a distribuição diamétrica por talhão, parcela ou população simulada."))
 
         abas = QTabWidget()
+        abas.setDocumentMode(True)
+        abas.tabBar().setDrawBase(False)
         layout.addWidget(abas)
 
         self.painel_talhao = PainelAjusteWeibullIFC(weibull_ifc.TABELA_TALHAO, "Weibull por Talhão")
@@ -379,7 +385,11 @@ class TelaWeibullIFC(TelaBase):
 
         abas.addTab(self.painel_talhao, "Por Talhão")
         abas.addTab(self.painel_plot, "Por Parcela (Plot)")
-        abas.addTab(self.painel_simulacao, "Por Simulação")
+        scroll_simulacao = QScrollArea()
+        scroll_simulacao.setWidgetResizable(True)
+        scroll_simulacao.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_simulacao.setWidget(self.painel_simulacao)
+        abas.addTab(scroll_simulacao, "Por Simulação")
 
     def novo_registro(self):
         self.painel_talhao.novo_registro()

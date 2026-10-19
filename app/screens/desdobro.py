@@ -7,13 +7,15 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView, QAbstractSpinBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
     QMessageBox, QPushButton, QSlider, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView,
+    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QTabWidget,
 )
 
 from ..core import projeto
 from ..core.db import conectar
 from ..core.desdobro import simular
 from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.cartao import Cartao
+from ..theme import qss
 from .base import TelaBase
 
 
@@ -26,8 +28,8 @@ class SecaoTorete(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # Escala fixa até 100 cm: variar o diâmetro varia o círculo visivelmente.
-        escala = (min(self.width(), self.height()) - 30) / max(100, self.diametro)
+        # Escala fixa até 60 cm: variar o diâmetro varia o círculo visivelmente.
+        escala = (min(self.width(), self.height()) - 30) / max(60, self.diametro)
         p.translate(self.width() / 2, self.height() / 2)
         p.scale(escala, escala)
         r = self.diametro / 2
@@ -49,29 +51,58 @@ class TelaDesdobro(TelaBase):
         super().__init__(parent)
         self._carregando = True
         raiz = QVBoxLayout(self)
-        raiz.addWidget(CabecalhoTela('Desdobro de Toretes',
-            'Compare cada produto separadamente. Selecione uma tábua para visualizar o corte.'))
+        raiz.setContentsMargins(20, 20, 20, 16)
+        raiz.setSpacing(16)
+        cabecalho = CabecalhoTela('Desdobro de Toretes',
+            'Compare produtos, visualize os cortes e estime a produção de cada lote.')
+        cabecalho.adicionar_acao('Salvar estudo', self._salvar, icone='salvar', destaque=True)
+        raiz.addWidget(cabecalho)
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setChildrenCollapsible(False)
         raiz.addWidget(split, 1)
-        esquerda, direita = QWidget(), QWidget()
+        esquerda = QWidget()
+        painel_secao = Cartao('Seção de corte')
+        painel_secao.layout().setStretch(1, 1)
+        painel_secao.layout().setStretch(2, 0)
         split.addWidget(esquerda)
-        split.addWidget(direita)
-        split.setSizes([550, 420])
-        le, ld = QVBoxLayout(esquerda), QVBoxLayout(direita)
+        split.addWidget(painel_secao)
+        split.setSizes([520, 420])
+        le, ld = QVBoxLayout(esquerda), QVBoxLayout(painel_secao.corpo)
+        le.setContentsMargins(0, 0, 0, 0)
+        ld.setContentsMargins(0, 0, 0, 0)
         self.comprimento = QLabel()
+        self.comprimento.setWordWrap(True)
+        qss.aplicar_variante(self.comprimento, 'dica')
         le.addWidget(self.comprimento)
-        le.addWidget(QLabel('Produtos — largura/espessura em cm; comprimento em m'))
-        self.produtos = self._tabela(['Nome', 'Compr. (m)', 'Larg. (cm)', 'Esp. (cm)'])
-        le.addWidget(self.produtos)
-        self._botoes(le, self.produtos, ['Tábua', '', '10', '2,5'])
-        le.addWidget(QLabel('Lote — cerne em % da área; diâmetro sem casca'))
-        self.lote = self._tabela(['Diâm. (cm)', 'Cerne (%)', 'Nº toras', 'Prev./tora', 'Prev./lote'])
-        le.addWidget(self.lote)
-        self._botoes(le, self.lote, ['30', '50', '1'])
-        self.resumo_lote = QLabel()
-        self.resumo_lote.setWordWrap(True)
-        le.addWidget(self.resumo_lote)
+        abas = QTabWidget()
+        abas.setDocumentMode(True)
+        abas.tabBar().setDrawBase(False)
+        le.addWidget(abas, 1)
+        for titulo, nome, colunas, padrao in (
+                ('Produtos', 'produtos', ['Nome', 'Compr. (m)', 'Larg. (cm)', 'Esp. (cm)'],
+                 ['Tábua', '', '10', '2,5']),
+                ('Lote de toretes', 'lote', ['Diâm. (cm)', 'Cerne (%)', 'Nº toras', 'Prev./tora', 'Prev./lote'],
+                 ['30', '50', '1'])):
+            painel = QWidget()
+            pagina = QVBoxLayout(painel)
+            pagina.setContentsMargins(0, 12, 0, 0)
+            dica = QLabel('Selecione um produto para simular o encaixe. Edite as dimensões na tabela.'
+                          if nome == 'produtos' else 'Informe o diâmetro sem casca, o cerne em % da área e a quantidade.')
+            dica.setWordWrap(True)
+            qss.aplicar_variante(dica, 'dica')
+            pagina.addWidget(dica)
+            tabela = self._tabela(colunas)
+            setattr(self, nome, tabela)
+            pagina.addWidget(tabela, 1)
+            self._botoes(pagina, tabela, padrao)
+            abas.addTab(painel, titulo)
+            if nome == 'lote':
+                self.resumo_lote = QLabel()
+                self.resumo_lote.setWordWrap(True)
+                pagina.addWidget(self.resumo_lote)
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setVerticalSpacing(10)
         ld.addLayout(form)
         self.diametro = self._spin(1, 200, 30)
         self.cerne = self._spin(0, 100, 50)
@@ -89,6 +120,7 @@ class TelaDesdobro(TelaBase):
             'Percentual do volume da tora convertido em produto comercial. '
             'Referência inicial: 35%. A produção também respeita o limite geométrico.')
         self.canvas = SecaoTorete()
+        self.canvas.setMinimumSize(220, 180)
         ld.addWidget(self.canvas, 1)
         legenda = QLabel('Marrom: cerne · Bege: alburno · Azul: encaixe geométrico teórico')
         legenda.setWordWrap(True)
@@ -104,12 +136,16 @@ class TelaDesdobro(TelaBase):
             'perdas do processo, sem localizar os defeitos ou as peças rejeitadas. '
             'Classificação de cerne/alburno referente ao encaixe teórico.')
         nota.setWordWrap(True)
-        raiz.addWidget(nota)
+        qss.aplicar_variante(nota, 'dica')
+        detalhes = QPushButton('Sobre a estimativa')
+        detalhes.setCheckable(True)
+        qss.aplicar_variante(detalhes, 'leve')
+        detalhes.toggled.connect(nota.setVisible)
+        nota.hide()
+        le.addWidget(detalhes)
+        le.addWidget(nota)
         self.status = QLabel()
         raiz.addWidget(self.status)
-        salvar = QPushButton('Salvar estudo no projeto')
-        salvar.clicked.connect(self._salvar)
-        raiz.addWidget(salvar)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(150)
@@ -137,6 +173,10 @@ class TelaDesdobro(TelaBase):
         t = QTableWidget(0, len(nomes))
         t.setHorizontalHeaderLabels(nomes)
         t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        t.setAlternatingRowColors(True)
+        t.setShowGrid(False)
+        t.verticalHeader().hide()
+        t.verticalHeader().setDefaultSectionSize(32)
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         return t
@@ -158,6 +198,7 @@ class TelaDesdobro(TelaBase):
             b = QPushButton(nome)
             b.clicked.connect(acao)
             barra.addWidget(b)
+        barra.addStretch(1)
         layout.addLayout(barra)
 
     def _remover(self, tabela):
@@ -178,7 +219,10 @@ class TelaDesdobro(TelaBase):
     @staticmethod
     def _numero(texto):
         from math import isfinite
-        n = float(texto.replace(',', '.'))
+        try:
+            n = float(texto.replace(',', '.'))
+        except ValueError:
+            raise ValueError('Preencha as dimensões e os valores das tabelas com números válidos.')
         if not isfinite(n):
             raise ValueError('Número não finito.')
         return n

@@ -40,10 +40,10 @@ PILHA_FONTES = f'"{FONTE_PRINCIPAL}", "Segoe UI", Arial, sans-serif'
 # moderna) por papel de texto na UI. `variante="..."` (telas) ou seletor
 # direto (campos/tabela/botão) em app/theme/qss.py:gerar aplicam cada um.
 TIPOGRAFIA = {
-    "titulo_tela": {"tamanho": 20, "peso": 700},      # título principal da tela
+    "titulo_tela": {"tamanho": 22, "peso": 700},      # título principal da tela
     "titulo_painel": {"tamanho": 16, "peso": 700},    # título de painel (ex: "Modelos cadastrados")
-    "titulo_cartao": {"tamanho": 14, "peso": 700},    # título de card/seção (ver widgets/cartao.py)
-    "label_campo": {"tamanho": 12, "peso": 600},      # rótulo de campo (ex: "Nome", "Talhão")
+    "titulo_cartao": {"tamanho": 14, "peso": 600},    # título de card/seção (ver widgets/cartao.py)
+    "label_campo": {"tamanho": 12, "peso": 500},      # rótulo de campo (ex: "Nome", "Talhão")
     "texto_normal": {"tamanho": 13, "peso": 400},     # texto corrido / base do app
     "entrada": {"tamanho": 13, "peso": 400},          # QLineEdit/QComboBox/QPlainTextEdit/...
     "botao": {"tamanho": 13, "peso": 600},            # QPushButton
@@ -73,7 +73,7 @@ PALETA_GRAFICO = {
         "tinta_primaria": "#0b0b0b",
         "tinta_muted": "#898781",
         "grade": "#e1e0d9",
-        "superficie": "#fcfcfb",
+        "superficie": "#ffffff",
         "dados": "#2a78d6",
         "ajuste": "#008300",
     },
@@ -81,7 +81,7 @@ PALETA_GRAFICO = {
         "tinta_primaria": "#e8e6e1",
         "tinta_muted": "#9a9890",
         "grade": "#3a3a38",
-        "superficie": "#1c1c1c",
+        "superficie": "#192832",
         "dados": "#5b9bd5",
         "ajuste": "#4caf50",
     },
@@ -100,7 +100,7 @@ COR_TOOLTIP = {
 # Fundo do canvas do Construtor de Variáveis (app/screens/construtor_variaveis.py)
 # — widget que pinta a própria aparência via QPainter, não alcançado pela
 # stylesheet Qt. Mesmos valores do app/tema.py original (_CANVAS_CONSTRUTOR).
-COR_CANVAS_CONSTRUTOR = {"light": "#f2f2f2", "dark": "#232323"}
+COR_CANVAS_CONSTRUTOR = {"light": "#ffffff", "dark": "#15232d"}
 
 # Barra lateral: cor FIXA, igual nos dois temas — peça de identidade
 # visual própria (sidebar escura), não acompanha claro/escuro.
@@ -124,15 +124,15 @@ SOMBRA_PADRAO = {"rgb": (22, 35, 42), "alpha": 0.06, "deslocamento_y": 2, "expan
 # normal #16232A vs texto auxiliar #66757C).
 PALETA_UI = {
     "light": {
-        "bg": "#f7f9f9", "bg_widget": "#ffffff", "fg": "#16232A", "fg_muted": "#66757C",
-        "fg_cabecalho": "#34454D",
-        "borda": "#d4d2cb", "accent": "#075056", "accent_hover": "#09666d", "accent_fg": "#ffffff",
-        "selecao_bg": "#d7e7e8", "trough": "#e5e3dd", "hover": "#ececea", "disabled_fg": "#a8a6a0",
+        "bg": "#f3f6f8", "bg_widget": "#ffffff", "fg": "#192e3b", "fg_muted": "#617785",
+        "fg_cabecalho": "#425c6c", "borda": "#dce5eb", "accent": "#09656b",
+        "accent_hover": "#087b82", "accent_fg": "#ffffff", "selecao_bg": "#dceff0",
+        "trough": "#e6edf1", "hover": "#edf3f6", "disabled_fg": "#95a5af",
     },
     "dark": {
-        "bg": "#1c1c1c", "bg_widget": "#242424", "fg": "#e8e6e1", "fg_muted": "#9a9890",
-        "fg_cabecalho": "#b8bfc4",
-        "borda": "#3a3a38", "accent": "#075056", "accent_hover": "#09666d", "accent_fg": "#ffffff",
-        "selecao_bg": "#173f42", "trough": "#333331", "hover": "#2c2c2c", "disabled_fg": "#5a5a57",
+        "bg": "#111c24", "bg_widget": "#192832", "fg": "#e6eef3", "fg_muted": "#9bb0be",
+        "fg_cabecalho": "#b7c9d5", "borda": "#2c404d", "accent": "#146b72",
+        "accent_hover": "#18818a", "accent_fg": "#ffffff", "selecao_bg": "#204850",
+        "trough": "#253844", "hover": "#233844", "disabled_fg": "#607885",
     },
 }

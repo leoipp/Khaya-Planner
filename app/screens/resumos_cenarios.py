@@ -15,6 +15,7 @@ from ..theme import icones, qss
 from ..widgets.cartao import Cartao
 from ..widgets.tabela import emoldurar_tabela
 from ..widgets.dialogo_progresso import DialogoProgresso
+from ..widgets.cabecalho_tela import CabecalhoTela
 from .base import TelaBase
 
 
@@ -79,10 +80,9 @@ class TelaResumosCenarios(TelaBase):
         self._thread = None
         self._thread_mapa = None
         raiz = QVBoxLayout(self)
-        raiz.setContentsMargins(8, 8, 8, 8)
-        titulo = QLabel("Resumos de cenários")
-        qss.aplicar_variante(titulo, "titulo")
-        raiz.addWidget(titulo)
+        raiz.setContentsMargins(20, 20, 20, 20)
+        raiz.setSpacing(16)
+        raiz.addWidget(CabecalhoTela('Resumos de Cenários', 'Cruze fontes, agrupe indicadores e prepare os dados para o planejamento.'))
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._montar_configuracao())
         splitter.addWidget(self._montar_previa())

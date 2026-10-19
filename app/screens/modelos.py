@@ -89,11 +89,10 @@ class TelaModelos(TelaBase):
 
         layout_raiz = QVBoxLayout(self)
         layout_raiz.setContentsMargins(
-            tokens.ESPACO_SM, tokens.ESPACO_SM,
-            tokens.ESPACO_SM, tokens.ESPACO_SM)
-        layout_raiz.setSpacing(tokens.ESPACO_SM)
+            20, 20, 20, 20)
+        layout_raiz.setSpacing(16)
 
-        cabecalho = CabecalhoTela("Modelos")
+        cabecalho = CabecalhoTela("Modelos", "Cadastre equações e coeficientes para representar o crescimento e o afilamento.")
         cabecalho.adicionar_acao(
             "Importar planilha", self.importar_modelos, icone="importar")
         layout_raiz.addWidget(cabecalho)
@@ -267,7 +266,7 @@ class TelaModelos(TelaBase):
         layout.addWidget(self.checkbox_estrato_todos)
 
     def _montar_secao_variaveis_equacao(self, container):
-        layout = QHBoxLayout(container)
+        layout = QVBoxLayout(container)
 
         coluna_equacao = QVBoxLayout()
         coluna_equacao.addWidget(QLabel("Equação"))

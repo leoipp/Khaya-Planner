@@ -83,7 +83,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
 
 from .importador import NOME_TABELA_BASE_IFC
 from .intensidades import TABELA_RESUMO_TALHAO
@@ -3506,9 +3505,8 @@ def _worker_inicializar_lote(caminho_trabalho: str, contexto_lote: Dict) -> None
 
     As variáveis de ambiente abaixo (`os.environ.setdefault`) só afetam
     threads nativas que ainda vão ler esse valor pela primeira vez — mas
-    numpy/scipy (`import numpy as np`/`from scipy.optimize import
-    curve_fit`, topo deste módulo) já foram importados, e já inicializaram
-    seu backend BLAS, no momento em que o multiprocessing (`spawn`,
+    numpy já foi importado no topo deste módulo e inicializou seu
+    backend BLAS no momento em que o multiprocessing (`spawn`,
     padrão no Windows) precisou importar este módulo só pra localizar
     esta própria função — ANTES do corpo dela rodar. Setar a env var aqui
     é tarde demais pro backend já carregado; por isso `threadpool_limits`
@@ -4433,6 +4431,7 @@ def ajustar_logistico(x: np.ndarray, y: np.ndarray, idade_maxima_manejo: float):
     (a, b, c, itd, r2) — use `itd_fora_do_intervalo` pra saber se essa ITD
     é confiável (ver calcular_mip_continuo, que marca esses casos como
     ITD_NAO_IDENTIFICAVEL em vez de OK)."""
+    from scipy.optimize import curve_fit
     ordem = np.argsort(x)
     x_ordenado = x[ordem]
     y_ordenado = y[ordem]

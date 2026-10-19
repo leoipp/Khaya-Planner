@@ -30,8 +30,10 @@ from ..core.importador import (
 )
 from ..theme import icones, qss
 from ..widgets.cartao import Cartao
+from ..widgets.layout_fluxo import GradeCampos
 from ..widgets.importacao_dialogs import escolher_aba, escolher_cabecalho, escolher_mapeamento_colunas
 from ..widgets.tabela import IID_RESUMO, Tabela, emoldurar_tabela
+from ..widgets.cabecalho_tela import CabecalhoTela
 from .base import TelaBase
 
 # (chave, título, nome da tabela, palavras-chave pra sugerir a aba padrão
@@ -149,51 +151,30 @@ class TelaConfiguracoes(TelaBase):
 
     def _montar_form(self):
         layout_raiz = QVBoxLayout(self)
-        layout_raiz.setContentsMargins(0, 0, 0, 0)
-
-        # QScrollArea em vez de só um QWidget — sem isso, redimensionar a
-        # janela menor que o conteúdo cortava os últimos campos, sem
-        # nenhum jeito de rolar até eles.
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        layout_raiz.addWidget(scroll)
-
-        container = QWidget()
-        layout_container = QVBoxLayout(container)
-        layout_container.setContentsMargins(12, 12, 12, 12)
-        layout_container.setSpacing(12)
-
-        # Duas abas — "Parâmetros" (o que "Salvar configurações" grava,
-        # exceto Sortimentos, que tem CRUD próprio) e "Operações" (importar
-        # base, rodar Simulação de Intensidades, compactar banco). Antes
-        # eram 9 cartões desiguais empilhados em só 2 colunas — misturava
-        # configuração e operação na mesma vista e obrigava rolar muito
-        # pra achar qualquer coisa. "Salvar configurações" continua FORA
-        # das abas, sempre visível — grava os campos das duas, não só a
-        # aba aberta no momento (ver salvar_registro).
+        layout_raiz.setContentsMargins(20, 20, 20, 0)
+        layout_raiz.setSpacing(16)
+        layout_raiz.addWidget(CabecalhoTela('Configurações',
+            'Ajuste os parâmetros econômicos, gerencie as bases e configure as ferramentas do projeto.'))
         abas = QTabWidget()
-        layout_container.addWidget(abas)
+        self.abas_configuracoes = abas
+        abas.setDocumentMode(True)
+        abas.tabBar().setDrawBase(False)
+        layout_raiz.addWidget(abas, 1)
+        for titulo, montar in (('Parâmetros', self._montar_aba_parametros),
+                                ('Dados e manutenção', self._montar_aba_operacoes)):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            container = QWidget()
+            montar(container)
+            scroll.setWidget(container)
+            abas.addTab(scroll, titulo)
 
-        aba_parametros = QWidget()
-        abas.addTab(aba_parametros, "Parâmetros")
-        self._montar_aba_parametros(aba_parametros)
-
-        aba_operacoes = QWidget()
-        abas.addTab(aba_operacoes, "Operações")
-        self._montar_aba_operacoes(aba_operacoes)
-
-        # Ação principal da tela, sempre por último e visualmente separada
-        # das operações acima (que têm seu próprio botão específico) —
-        # variante "salvar" (maior, negrito, cor de destaque, ver
-        # app/theme/qss.py) pra não ser confundida com um botão de
-        # operação. Fica dentro da área rolável, igual ao original
-        # (PainelRolavel continha o container inteiro, barra_salvar incluída).
-        separador = QFrame()
-        separador.setFrameShape(QFrame.Shape.HLine)
-        layout_container.addWidget(separador)
-
-        barra_salvar = QHBoxLayout()
+        rodape = QWidget()
+        rodape.setObjectName('BarraExecucao')
+        barra_salvar = QHBoxLayout(rodape)
+        barra_salvar.setContentsMargins(16, 12, 16, 12)
         barra_salvar.addStretch(1)
         botao_exportar_configuracoes = QPushButton("Exportar parametrizações...")
         icones.aplicar_icone(botao_exportar_configuracoes, "exportar")
@@ -211,9 +192,11 @@ class TelaConfiguracoes(TelaBase):
         icones.aplicar_icone(botao_salvar, "salvar", cor="white")
         botao_salvar.clicked.connect(self.salvar_registro)
         barra_salvar.addWidget(botao_salvar)
-        layout_container.addLayout(barra_salvar)
+        layout_raiz.addWidget(rodape)
 
-        scroll.setWidget(container)
+
+    def abrir_aba_dados(self):
+        self.abas_configuracoes.setCurrentIndex(1)
 
     def _montar_aba_parametros(self, container):
         """Cartões que "Salvar configurações" grava, exceto Sortimentos/
@@ -251,7 +234,10 @@ class TelaConfiguracoes(TelaBase):
         cartao_solver = Cartao("CPLEX — solver de planejamento (esta máquina)")
         layout.addWidget(cartao_solver)
         solver_layout = QVBoxLayout(cartao_solver.corpo)
-        solver_layout.addWidget(QLabel("Selecione cplex.exe na pasta cplex/bin da sua instalação IBM ILOG CPLEX."))
+        dica_solver = QLabel("Selecione cplex.exe na pasta cplex/bin da sua instalação IBM ILOG CPLEX.")
+        dica_solver.setWordWrap(True)
+        qss.aplicar_variante(dica_solver, 'dica')
+        solver_layout.addWidget(dica_solver)
         linha_solver = QHBoxLayout()
         self.entry_cplex = QLineEdit(preferencias.carregar().get('cplex_executavel', ''))
         self.entry_cplex.setPlaceholderText("Caminho completo do cplex.exe")
@@ -550,7 +536,7 @@ class TelaConfiguracoes(TelaBase):
         # (addStretch no final): os campos são curtos, não precisam
         # ocupar a largura toda do card, mesmo agora que o card é largura
         # cheia (ver _montar_aba_parametros).
-        linha_campos = QHBoxLayout()
+        linha_campos = GradeCampos(espacamento=12)
         layout.addLayout(linha_campos)
 
         self.entry_sortimento_nome = QLineEdit()
@@ -631,7 +617,7 @@ class TelaConfiguracoes(TelaBase):
         # Todos os campos numa linha horizontal só, mesmo padrão de
         # _montar_secao_sortimentos (ver _campo_empilhado) — sem esticar,
         # os campos são curtos.
-        linha_campos = QHBoxLayout()
+        linha_campos = GradeCampos(espacamento=12)
         layout.addLayout(linha_campos)
 
         self.entry_custo_formacao_nome = QLineEdit()
@@ -720,7 +706,7 @@ class TelaConfiguracoes(TelaBase):
         # os campos são curtos. "Produtividade" fica de fora (não é campo
         # de formulário — botão "+" por linha na tabela acima, ver
         # docstring desta função).
-        linha_campos = QHBoxLayout()
+        linha_campos = GradeCampos(espacamento=12)
         layout.addLayout(linha_campos)
 
         self.entry_custo_colheita_nome = QLineEdit()
@@ -937,16 +923,15 @@ class TelaConfiguracoes(TelaBase):
         projeto.sincronizar()
 
     def _montar_secao_economica(self, container):
-        layout = QGridLayout(container)
-        layout.setColumnStretch(1, 1)
+        layout = GradeCampos(container, espacamento=16)
         linha = 0
 
         self.entry_taxa_desconto = QLineEdit()
-        self._linha_campo(layout, linha, "Taxa de desconto (%)", self.entry_taxa_desconto)
+        layout.addLayout(self._campo_empilhado("Taxa de desconto (%)", self.entry_taxa_desconto))
         linha += 1
 
         self.entry_ano_referencia = QLineEdit()
-        self._linha_campo(layout, linha, "Ano de referência da análise", self.entry_ano_referencia)
+        layout.addLayout(self._campo_empilhado("Ano de referência da análise", self.entry_ano_referencia))
         linha += 1
 
         # Contra o que o nó "VPL" (Construtor de Variáveis) conta o
@@ -966,27 +951,27 @@ class TelaConfiguracoes(TelaBase):
             "RT/(1+taxa)^idade_simulada) em vez de um ano-calendário fixo igual pra todos, SEM "
             "descontar PIS+COFINS — não usa \"Ano de referência\" nem PIS/COFINS acima; a 2ª "
             "entrada do nó VPL, nesse modo, deve ser idade_simulada.")
-        self._linha_campo(layout, linha, "Base do período do VPL", self.combo_base_periodo_vpl)
+        layout.addLayout(self._campo_empilhado("Base do período do VPL", self.combo_base_periodo_vpl))
         linha += 1
 
         self.entry_pis = QLineEdit()
-        self._linha_campo(layout, linha, "PIS (%)", self.entry_pis)
+        layout.addLayout(self._campo_empilhado("PIS (%)", self.entry_pis))
         linha += 1
 
         self.entry_cofins = QLineEdit()
-        self._linha_campo(layout, linha, "COFINS (%)", self.entry_cofins)
+        layout.addLayout(self._campo_empilhado("COFINS (%)", self.entry_cofins))
         linha += 1
 
         self.entry_funrural = QLineEdit()
-        self._linha_campo(layout, linha, "Funrural (%)", self.entry_funrural)
+        layout.addLayout(self._campo_empilhado("Funrural (%)", self.entry_funrural))
         linha += 1
 
         self.entry_dias_trabalho = QLineEdit()
-        self._linha_campo(layout, linha, "Dias de Trabalho", self.entry_dias_trabalho)
+        layout.addLayout(self._campo_empilhado("Dias de Trabalho", self.entry_dias_trabalho))
         linha += 1
 
         self.entry_horas_trabalho = QLineEdit()
-        self._linha_campo(layout, linha, "Horas de Trabalho", self.entry_horas_trabalho)
+        layout.addLayout(self._campo_empilhado("Horas de Trabalho", self.entry_horas_trabalho))
 
     def _montar_secao_construtores(self, container):
         """Gerenciamento (duplicar/excluir/ativar-desativar) dos

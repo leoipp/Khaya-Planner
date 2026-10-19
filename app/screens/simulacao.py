@@ -34,15 +34,16 @@ import pandas as pd
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QPushButton, QScrollArea,
     QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..core import construtores, projeto, simulacao
 from ..core.db import _formatar_tamanho_bytes, conectar, conectar_caminho
 from ..theme import icones, qss
-from ..widgets.cartao import Cartao
-from ..widgets.grafico_simulacao import GraficoPorClasseSimulacao, GraficoResultadoSimulacao
+from ..widgets.painel_operacao import PainelOperacao as Cartao
+from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.grafico_sob_demanda import GraficoSobDemanda
 from ..widgets.tabela import IID_RESUMO, Tabela, emoldurar_tabela
 from .base import TelaBase
 
@@ -901,20 +902,17 @@ class TelaSimulacao(TelaBase):
     # ---------------- formulário ----------------
 
     def _montar_form(self):
+        self.setProperty('interface', 'operacao')
         layout_raiz = QVBoxLayout(self)
-        layout_raiz.setContentsMargins(0, 0, 0, 0)
-        cabecalho = QVBoxLayout()
-        cabecalho.setContentsMargins(16, 12, 16, 4)
-        titulo = QLabel("Simulação")
-        qss.aplicar_variante(titulo, "titulo-secao")
-        cabecalho.addWidget(titulo)
-        descricao = QLabel("Defina o manejo, gere os cenários e compare os resultados.")
-        qss.aplicar_variante(descricao, "descricao-tela")
-        descricao.setWordWrap(True)
-        cabecalho.addWidget(descricao)
-        layout_raiz.addLayout(cabecalho)
+        layout_raiz.setContentsMargins(20, 20, 20, 0)
+        layout_raiz.setSpacing(12)
+        layout_raiz.addWidget(CabecalhoTela("Simulação",
+            "Estudo de manejo florestal"))
 
         self.abas_simulacao = QTabWidget()
+        self.abas_simulacao.setObjectName('AbasOperacao')
+        self.abas_simulacao.setDocumentMode(True)
+        self.abas_simulacao.tabBar().setDrawBase(False)
         layout_raiz.addWidget(self.abas_simulacao, 1)
         self.scroll_manejo, layout = self._nova_aba_simulacao("Manejo e cenários")
         self.scroll_parametros, layout_parametros = self._nova_aba_simulacao("Dados e parâmetros")
@@ -933,13 +931,15 @@ class TelaSimulacao(TelaBase):
         self._grid.setColumnStretch(0, 1)
         self._grid.setSpacing(16)
         layout.addLayout(self._grid)
-        self.cartao_eventos = Cartao("1. Definir o manejo")
+        self.cartao_eventos = Cartao("Plano de manejo")
         self._grid.addWidget(self.cartao_eventos, 0, 0)
         self._montar_secao_eventos(self.cartao_eventos.corpo)
-        self.cartao_cenarios = Cartao("2. Organizar e gerar os cenários")
+        self.cartao_cenarios = Cartao("Cenários do estudo")
         self._grid.addWidget(self.cartao_cenarios, 1, 0)
         self._montar_secao_cenarios(self.cartao_cenarios.corpo)
-        self.cartao_cenarios.setVisible(False)
+        self.cartao_cenarios.corpo.layout().removeWidget(self.painel_grade_cenarios)
+        self.cartao_eventos.corpo.layout().addWidget(self.painel_grade_cenarios)
+        self.cartao_cenarios.setVisible(True)
 
         self._montar_secao_ranking_cenarios(self._layout_comparacao)
         self._layout_comparacao.addStretch(1)
@@ -954,10 +954,83 @@ class TelaSimulacao(TelaBase):
 
         self._montar_secao_executar(layout, layout_raiz)
 
-        layout.addStretch(1)
+        self._montar_workspace_cenarios(layout)
         self._layout_simulacao_lado_a_lado = None
         self._padronizar_controles_simulacao()
         self._atualizar_layout_responsivo()
+
+    def _montar_workspace_cenarios(self, layout):
+        """Organiza o estudo em lista e formulário, compartilhando os controles existentes."""
+        formulario = self.cartao_eventos.corpo.layout()
+        lista = self.cartao_cenarios.corpo.layout()
+        formulario.addWidget(self.painel_cenario_manual)
+        # O seletor pertence ao estudo; permanece acima da lista e do formulário.
+        modo = formulario.takeAt(0).layout()
+        layout.insertLayout(0, modo)
+        self.combo_modo_simulacao.setMinimumWidth(0)
+        self.combo_modo_simulacao.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_modo_simulacao.setMinimumContentsLength(12)
+        for botao in (self.botao_reiniciar_lote, self.botao_exportar_cenarios,
+                      self.botao_exportar_cenarios_banco):
+            botao.hide()
+        menu = QMenu(self)
+        for texto, callback in (
+            ('Regerar todos os cenários', lambda: self._gerar_todos_cenarios(somente_pendentes=False)),
+            ('Exportar resultados em Excel…', self.exportar_todos_cenarios),
+            ('Exportar resultados em SQLite…', self.exportar_todos_cenarios_banco),
+        ):
+            menu.addAction(texto, callback)
+        mais = QPushButton('Mais ações')
+        mais.setMenu(menu)
+        modo.addWidget(mais)
+        filtros = QHBoxLayout()
+        self.busca_cenarios = QLineEdit()
+        self.busca_cenarios.setPlaceholderText('Buscar cenário pelo nome…')
+        self.busca_cenarios.setClearButtonEnabled(True)
+        self.filtro_status_cenarios = QComboBox()
+        self.filtro_status_cenarios.addItems(['Todas as situações', 'Pendente', 'Gerado', 'Erro'])
+        self.filtro_status_cenarios.setMinimumWidth(170)
+        filtros.addWidget(self.busca_cenarios, 1)
+        filtros.addWidget(self.filtro_status_cenarios)
+        lista.insertLayout(0, filtros)
+        self._layout_rodape_simulacao.insertWidget(0, self.progressbar_cenarios)
+        self._layout_rodape_simulacao.insertWidget(1, self.label_status_cenarios)
+        self._dados_cenarios = []
+        self.busca_cenarios.textChanged.connect(self._filtrar_cenarios)
+        self.filtro_status_cenarios.currentIndexChanged.connect(self._filtrar_cenarios)
+        self.tabela_cenarios.selecaoAlterada.connect(self._atualizar_acoes_cenarios)
+        self._atualizar_acoes_cenarios()
+        self.label_dica_modo.hide()
+        self.cartao_eventos.layout().itemAt(0).widget().setText('Configurar manejo')
+        self.cartao_cenarios.layout().takeAt(self.cartao_cenarios.layout().count() - 1)
+        self.cartao_cenarios.layout().setStretch(1, 1)
+        header = self.tabela_cenarios.view.horizontalHeader()
+        header.setMinimumSectionSize(64)
+        for indice, largura in enumerate((180, 72, 64, 82, 64, 82, 64, 88, 110)):
+            header.resizeSection(indice, largura)
+        self.tabela_cenarios.view.verticalHeader().setDefaultSectionSize(38)
+        lista.setStretch(lista.indexOf(self.tabela_cenarios), 1)
+        self._grid.setRowStretch(0, 1)
+        layout.setStretch(layout.indexOf(self._grid), 1)
+
+    def _filtrar_cenarios(self, *_):
+        termo = self.busca_cenarios.text().strip().casefold()
+        status = self.filtro_status_cenarios.currentText()
+        dados = [(iid, linha) for iid, linha in self._dados_cenarios
+                 if termo in str(linha[0]).casefold()
+                 and (status == 'Todas as situações' or str(linha[-1]).startswith(status))]
+        self.tabela_cenarios.definir_linhas([r for _, r in dados], ids=[i for i, _ in dados])
+        header = self.tabela_cenarios.view.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for indice in range(1, 9):
+            header.resizeSection(indice, 110 if indice == 8 else 78)
+        self._atualizar_acoes_cenarios()
+
+    def _atualizar_acoes_cenarios(self):
+        selecionados = self.tabela_cenarios.selecionados()
+        self.botao_excluir_cenario.setEnabled(bool(selecionados))
+        self.botao_ativar_cenario.setEnabled(len(selecionados) == 1)
 
     def _padronizar_controles_simulacao(self):
         for painel in (self.cartao_classes, self.cartao_colunas, self.cartao_eventos,
@@ -980,7 +1053,7 @@ class TelaSimulacao(TelaBase):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         conteudo = QWidget()
         layout = QVBoxLayout(conteudo)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(0, 12, 4, 16)
         layout.setSpacing(16)
         scroll.setWidget(conteudo)
         self.abas_simulacao.addTab(scroll, titulo)
@@ -1347,7 +1420,7 @@ class TelaSimulacao(TelaBase):
             "Defina os intervalos abaixo para criar as combinações de idades e intensidades.",
         ]
         self.label_dica_modo.setText(dicas[indice])
-        self.cartao_cenarios.setVisible(marcado)
+        self.cartao_cenarios.setVisible(True)
         self.botao_gerar.setVisible(not marcado)
         self._atualizar_layout_responsivo(forcar=True)
 
@@ -1362,6 +1435,22 @@ class TelaSimulacao(TelaBase):
         if not forcar and lado_a_lado == self._layout_simulacao_lado_a_lado:
             return
         self._layout_simulacao_lado_a_lado = lado_a_lado
+        self._grid.removeWidget(self.cartao_eventos)
+        self._grid.removeWidget(self.cartao_cenarios)
+        lateral = lado_a_lado and not self.checkbox_grade_automatica.isChecked()
+        self._grid.setColumnStretch(0, 1)
+        self._grid.setColumnStretch(1, 0)
+        if lateral:
+            self.cartao_eventos.setFixedWidth(350)
+            self._grid.addWidget(self.cartao_cenarios, 0, 0)
+            self._grid.addWidget(self.cartao_eventos, 0, 1, Qt.AlignmentFlag.AlignTop)
+        else:
+            self.cartao_eventos.setMinimumWidth(0)
+            self.cartao_eventos.setMaximumWidth(16777215)
+            self._grid.addWidget(self.cartao_eventos, 0, 0)
+            self._grid.addWidget(self.cartao_cenarios, 1, 0)
+        self._grid.setRowStretch(0, 1 if lateral else 0)
+        self._grid.setRowStretch(1, 0 if lateral else 1)
         for widget in (self.cartao_colunas, self.cartao_classes):
             self._grid_parametros.removeWidget(widget)
 
@@ -1398,12 +1487,19 @@ class TelaSimulacao(TelaBase):
     def _montar_secao_executar(self, layout, layout_raiz):
         # Estado e ações permanecem visíveis ao navegar entre as abas.
         rodape = QWidget()
-        layout_rodape = QVBoxLayout(rodape)
+        rodape.setObjectName('BarraExecucao')
+        layout_rodape = self._layout_rodape_simulacao = QVBoxLayout(rodape)
         layout_rodape.setContentsMargins(16, 8, 16, 12)
         layout_rodape.setSpacing(8)
         self.label_prontidao = QLabel("")
         self.label_prontidao.setWordWrap(True)
-        layout_rodape.addWidget(self.label_prontidao)
+        prontidao = QHBoxLayout()
+        prontidao.addWidget(self.label_prontidao, 1)
+        detalhes = QPushButton('Ver pendências')
+        detalhes.clicked.connect(lambda: QMessageBox.information(
+            self, 'Preparação da simulação', self.label_prontidao.toolTip() or self.label_prontidao.text()))
+        prontidao.addWidget(detalhes)
+        layout_rodape.addLayout(prontidao)
 
         # core/simulacao.py:gerar_populacao não expõe progress_callback —
         # instrumentar isso pra progresso numérico real é mudança de
@@ -1454,10 +1550,10 @@ class TelaSimulacao(TelaBase):
         dialogo.deleteLater()
 
     def _abrir_janela_graficos(self, _checked=False):
+        self.dialogo_graficos.show()
         self._atualizar_grafico_resultado()
         self._atualizar_tabela_pivo()
         self._atualizar_grafico_classe()
-        self.dialogo_graficos.show()
         self.dialogo_graficos.raise_()
         self.dialogo_graficos.activateWindow()
 
@@ -1510,7 +1606,7 @@ class TelaSimulacao(TelaBase):
         layout.addWidget(self.combo_grafico_agregacao, 1, 1)
         self.combo_grafico_agregacao.textActivated.connect(self._ao_mudar_selecao_grafico)
 
-        self.grafico_resultado = GraficoResultadoSimulacao()
+        self.grafico_resultado = GraficoSobDemanda("app.widgets.grafico_simulacao", "GraficoResultadoSimulacao")
         layout.addWidget(self.grafico_resultado, 2, 0, 1, 2)
 
     def _montar_aba_tabela_pivo(self, container):
@@ -1569,6 +1665,8 @@ class TelaSimulacao(TelaBase):
         self._repovoar_combo_preservando(self.combo_tabela_pivo_coluna, valores_combo)
 
     def _atualizar_tabela_pivo(self):
+        if not self.dialogo_graficos.isVisible():
+            return
         coluna = self._opcoes_tabela_pivo_coluna.get(self.combo_tabela_pivo_coluna.currentText())
         if not coluna:
             self.tabela_pivo_sortimento.redefinir_colunas([])
@@ -1668,7 +1766,7 @@ class TelaSimulacao(TelaBase):
         layout.addWidget(self.combo_grafico_classe_agregacao, 1, 1)
         self.combo_grafico_classe_agregacao.textActivated.connect(self._ao_mudar_selecao_grafico_classe)
 
-        self.grafico_classe = GraficoPorClasseSimulacao()
+        self.grafico_classe = GraficoSobDemanda("app.widgets.grafico_simulacao", "GraficoPorClasseSimulacao")
         layout.addWidget(self.grafico_classe, 2, 0, 1, 2)
 
     def _atualizar_opcoes_grafico_classe(self, conn):
@@ -1694,6 +1792,8 @@ class TelaSimulacao(TelaBase):
         self._atualizar_grafico_classe()
 
     def _atualizar_grafico_classe(self):
+        if not self.dialogo_graficos.isVisible():
+            return
         coluna = self._opcoes_grafico_classe_coluna.get(self.combo_grafico_classe_coluna.currentText())
         if not coluna:
             self.grafico_classe.mostrar_mensagem("Escolha uma coluna pra ver o gráfico.")
@@ -1751,7 +1851,7 @@ class TelaSimulacao(TelaBase):
         layout.addWidget(self.painel_cenario_manual)
         layout_manual = QVBoxLayout(self.painel_cenario_manual)
         layout_manual.setContentsMargins(0, 0, 0, 0)
-        self._dica_layout(layout_manual, "Adicionar usa as idades e intensidades do cartão de manejo acima.")
+
 
         # Desligado por padrão: o MIP contínuo (aba Ingressos) exige um
         # ajuste scipy.optimize.curve_fit POR TALHÃO (CPU-bound, não dá pra
@@ -1786,7 +1886,7 @@ class TelaSimulacao(TelaBase):
             },
         )
         self.tabela_cenarios.setMinimumHeight(220)
-        self.tabela_cenarios.setMaximumHeight(320)
+        self.tabela_cenarios.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tabela_cenarios.view.doubleClicked.connect(self._abrir_graficos_cenario_duplo_clique)
         self.label_resumo_cenarios = QLabel("Cenários cadastrados: 0 · Gerados: 0")
         qss.aplicar_variante(self.label_resumo_cenarios, "titulo")
@@ -1809,11 +1909,11 @@ class TelaSimulacao(TelaBase):
         botao_adicionar = QPushButton("Adicionar cenário")
         icones.aplicar_icone(botao_adicionar, "adicionar")
         botao_adicionar.clicked.connect(self._adicionar_cenario)
-        botao_excluir = QPushButton("Excluir selecionado(s)")
+        botao_excluir = self.botao_excluir_cenario = QPushButton("Excluir")
         qss.aplicar_variante(botao_excluir, "perigo")
         icones.aplicar_icone(botao_excluir, "excluir")
         botao_excluir.clicked.connect(self._excluir_cenarios_selecionados)
-        botao_ativar = QPushButton("Usar cenário selecionado")
+        botao_ativar = self.botao_ativar_cenario = QPushButton("Usar cenário")
         icones.aplicar_icone(botao_ativar, "ativar_desativar")
         botao_ativar.clicked.connect(self._ativar_cenario_selecionado)
         self.botao_gerar_lote = QPushButton("Gerar pendentes")
@@ -1841,7 +1941,7 @@ class TelaSimulacao(TelaBase):
             "no meio de um cenário. O que já foi gerado fica salvo; o resto continua \"Pendente\" "
             "(ou \"Erro\"), pra retomar depois com \"Gerar pendentes\".")
         self.botao_parar_lote.clicked.connect(self._parar_geracao_lote)
-        botao_exportar_cenarios = QPushButton("Exportar cenários para Excel…")
+        botao_exportar_cenarios = self.botao_exportar_cenarios = QPushButton("Exportar cenários para Excel…")
         icones.aplicar_icone(botao_exportar_cenarios, "exportar")
         botao_exportar_cenarios.setToolTip(
             "Um Excel só com todos os cenários já \"Gerado\" (status na tabela acima) empilhados "
@@ -1859,17 +1959,19 @@ class TelaSimulacao(TelaBase):
             "cada linha) — sem limite de linhas por aba do Excel, pra quando o total empilhado de "
             "todos os cenários passa dos milhões de linhas.")
         self.botao_exportar_cenarios_banco.clicked.connect(self.exportar_todos_cenarios_banco)
-        linha_nome.addWidget(botao_adicionar)
+        linha_nome.removeWidget(self.entry_nome_cenario)
+        layout_manual.addWidget(self.entry_nome_cenario)
+        layout_manual.addWidget(botao_adicionar)
         selecao = QHBoxLayout()
         selecao.addWidget(botao_ativar)
         selecao.addWidget(botao_excluir)
         selecao.addStretch(1)
         layout.addLayout(selecao)
-        self._dica_layout(layout, "Selecione uma linha para usar o cenário. Dê dois cliques para abrir seus gráficos.")
+
 
         titulo_execucao = QLabel("Executar o lote")
         qss.aplicar_variante(titulo_execucao, "titulo")
-        layout.addWidget(titulo_execucao)
+        titulo_execucao.hide()
         layout.addWidget(self.checkbox_calcular_mip_lote)
         execucao = QHBoxLayout()
         for botao in (self.botao_gerar_lote, self.botao_reiniciar_lote, self.botao_parar_lote):
@@ -2528,11 +2630,14 @@ class TelaSimulacao(TelaBase):
                                for k in ("raleio", "desbaste_1", "desbaste_2")),
         )
         if status["pronta"]:
+            self.label_prontidao.setToolTip("")
             self._definir_status(self.label_prontidao, "Pronto pra gerar a simulação.", "sucesso")
             self.botao_gerar.setEnabled(True)
         else:
             texto = "Faltando: " + "; ".join(status["pendencias"])
-            self._definir_status(self.label_prontidao, texto, "aviso")
+            self.label_prontidao.setToolTip(texto)
+            self._definir_status(self.label_prontidao,
+                f"{len(status['pendencias'])} pendências antes de gerar · Consulte os detalhes", "aviso")
             self.botao_gerar.setEnabled(False)
 
     def _ao_mudar_selecao_coluna(self, _texto=None):
@@ -2650,6 +2755,8 @@ class TelaSimulacao(TelaBase):
         divergência entre o que está na tela e o banco atual. A reação à
         troca de tema fica a cargo do próprio widget (ver
         widgets/grafico_simulacao.py), que reaplica o último desenho."""
+        if not self.dialogo_graficos.isVisible():
+            return
         nome_real, por_classe = self._opcoes_grafico_coluna.get(
             self.combo_grafico_coluna.currentText(), (None, False))
         if not nome_real:
@@ -3218,7 +3325,9 @@ class TelaSimulacao(TelaBase):
         try:
             conn = conectar()
         except RuntimeError:
-            self.tabela_cenarios.definir_linhas([])
+            self._dados_cenarios = []
+            self._filtrar_cenarios()
+            self.label_resumo_cenarios.setText("Cenários cadastrados: 0 · Gerados: 0")
             return
         try:
             linhas = conn.execute(
@@ -3255,7 +3364,8 @@ class TelaSimulacao(TelaBase):
             )
             for r in linhas
         ]
-        self.tabela_cenarios.definir_linhas(valores, ids=ids)
+        self._dados_cenarios = list(zip(ids, valores))
+        self._filtrar_cenarios()
         gerados = sum(r[9] == "Gerado" for r in linhas)
         self.label_resumo_cenarios.setText(f"Cenários cadastrados: {len(linhas)} · Gerados: {gerados}")
 

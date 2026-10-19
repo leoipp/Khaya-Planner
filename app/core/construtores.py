@@ -17,8 +17,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import brentq
-from scipy.special import gamma as _funcao_gamma
 
 from . import motor_modelos, simulacao
 from .numerico import converter_numero
@@ -514,6 +512,8 @@ def _forma_a_partir_do_cv(cv: float) -> float:
     decrescente em forma (ver comentário acima). Deixa propagar
     ValueError/RuntimeError do brentq se os dois extremos não trocarem de
     sinal (cv fora do que uma Weibull 2P consegue representar)."""
+    from scipy.optimize import brentq
+    from scipy.special import gamma as _funcao_gamma
     def diferenca(forma):
         return (
             _funcao_gamma(1.0 + 2.0 / forma) / _funcao_gamma(1.0 + 1.0 / forma) ** 2 - 1.0 - cv ** 2
@@ -532,6 +532,7 @@ def _recuperar_forma_escala(media: pd.Series, cv: pd.Series) -> Tuple[pd.Series,
     Cv iguais (comum: mesmo talhão/etapa repetido em várias idades)
     resolvem a raiz uma vez só e reaproveitam — evita repetir a busca por
     brentq (não é grátis) por nada em tabelas com muita linha repetida."""
+    from scipy.special import gamma as _funcao_gamma
     media_np = media.to_numpy(dtype=float)
     cv_np = cv.to_numpy(dtype=float)
     valido = np.isfinite(media_np) & np.isfinite(cv_np) & (media_np > 0) & (cv_np > 0)

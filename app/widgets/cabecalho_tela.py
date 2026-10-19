@@ -3,7 +3,7 @@
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from ..theme import icones, qss, tokens
@@ -24,6 +24,7 @@ class CabecalhoTela(QWidget):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         layout = QHBoxLayout(self)
+        self._layout = layout
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(tokens.ESPACO_LG)
 
@@ -31,6 +32,7 @@ class CabecalhoTela(QWidget):
         bloco_texto.setSpacing(tokens.ESPACO_XS)
 
         rotulo_titulo = QLabel(titulo)
+        rotulo_titulo.setWordWrap(True)
         qss.aplicar_variante(rotulo_titulo, "titulo-secao")
         bloco_texto.addWidget(rotulo_titulo)
 
@@ -46,6 +48,14 @@ class CabecalhoTela(QWidget):
         self._acoes.setSpacing(tokens.ESPACO_SM)
         self._acoes.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(self._acoes)
+
+    def resizeEvent(self, evento):
+        super().resizeEvent(evento)
+        # Ações passam para uma segunda linha antes de comprimir o título.
+        largura_acoes = self._acoes.minimumSize().width()
+        empilhar = self._acoes.count() > 0 and self.width() < largura_acoes + 420
+        self._layout.setDirection(QBoxLayout.Direction.TopToBottom if empilhar
+                                  else QBoxLayout.Direction.LeftToRight)
 
     def adicionar_acao(self, texto, callback, icone=None, destaque=False):
         botao = QPushButton(texto)

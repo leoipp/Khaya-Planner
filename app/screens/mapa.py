@@ -3,7 +3,7 @@ import json
 import math
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QGraphicsPathItem, QGraphicsScene, QGraphicsView,
     QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSplitter,
@@ -14,6 +14,8 @@ from ..core import camadas, mapa_dados, projeto
 from ..core.db import conectar
 from ..widgets.tabela import Tabela
 from ..theme import manager as tema
+from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.layout_fluxo import LayoutFluxo
 from .base import TelaBase
 
 
@@ -30,6 +32,16 @@ class CanvasMapa(QGraphicsView):
 
     def _atualizar_tema(self, _modo=None):
         self.setBackgroundBrush(QColor(tema.obter().cor_canvas_construtor()))
+
+    def paintEvent(self, evento):
+        super().paintEvent(evento)
+        if not self.itens_feicoes:
+            p = QPainter(self.viewport())
+            p.setPen(QColor(tema.obter().cor_ui('fg_muted')))
+            p.drawText(self.viewport().rect().adjusted(24, 24, -24, -24),
+                       Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                       'Seu território começa aqui\n\nAbra um projeto e importe um shapefile para explorar os talhões.')
+            p.end()
 
     def showEvent(self, evento):
         super().showEvent(evento)
@@ -122,11 +134,13 @@ class TelaMapa(TelaBase):
         self._linhas = []
         self._estilo = {}
         raiz = QVBoxLayout(self)
+        raiz.setContentsMargins(20, 20, 20, 20)
+        raiz.setSpacing(12)
+        cabecalho = CabecalhoTela('Mapa', 'Explore os talhões, consulte atributos e compare os cenários no território.')
+        cabecalho.adicionar_acao('Importar shapefile', self._importar, icone='importar', destaque=True)
+        raiz.addWidget(cabecalho)
         barra = QHBoxLayout()
-        barra.addWidget(QLabel('Mapa'))
-        importar = QPushButton('Importar shapefile')
-        importar.clicked.connect(self._importar)
-        barra.addWidget(importar)
+        barra.addWidget(QLabel('Camada'))
         self.combo = QComboBox()
         self.combo.setMinimumWidth(180)
         self.combo.currentIndexChanged.connect(self._selecionar)
@@ -139,7 +153,7 @@ class TelaMapa(TelaBase):
         self.botao_atributos.toggled.connect(self._alternar_atributos)
         barra.addWidget(self.botao_atributos)
         raiz.addLayout(barra)
-        ferramentas = QHBoxLayout()
+        ferramentas = LayoutFluxo()
         self.botao_join = QPushButton('Join com cenários...')
         self.botao_join.clicked.connect(self._abrir_join)
         ferramentas.addWidget(self.botao_join)
@@ -152,7 +166,6 @@ class TelaMapa(TelaBase):
         self.botao_cor_unica = QPushButton('Restaurar cor única')
         self.botao_cor_unica.clicked.connect(self._restaurar_cor_unica)
         ferramentas.addWidget(self.botao_cor_unica)
-        ferramentas.addStretch(1)
         raiz.addLayout(ferramentas)
         self.splitter = QSplitter(Qt.Orientation.Vertical)
         self.canvas = CanvasMapa()

@@ -8,6 +8,10 @@ from PySide6.QtWidgets import QWidget
 
 
 class TelaBase(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setProperty('interface', 'operacao')
+
     def recarregar_lista(self):
         """Chamado toda vez que a tela vai ser exibida (ver
         JanelaPrincipal.mostrar_tela) — recarrega dados que outra tela

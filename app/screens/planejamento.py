@@ -1,14 +1,18 @@
 """Formulário de planejamento florestal sem código, com execução em QThread."""
 import json
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QAbstractItemView, QAbstractSpinBox, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+    QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QTabWidget,
     QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
     QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..core import planejamento, preferencias, projeto
+from ..theme import qss, icones
+from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.painel_operacao import PainelOperacao
 from .base import TelaBase
 
 
@@ -34,42 +38,73 @@ class TelaPlanejamento(TelaBase):
         self.rodando = False
         self._thread = None
         self._esquema = {}
+        self.setProperty('interface', 'operacao')
         raiz = QVBoxLayout(self)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        raiz.addWidget(scroll)
-        corpo = QWidget()
-        scroll.setWidget(corpo)
-        layout = QVBoxLayout(corpo)
-        titulo = QLabel("Otimização de Planejamento")
-        layout.addWidget(titulo)
-        explicacao = QLabel("Escolhe um cenário por talhão. Primeiro minimiza o maior desvio anual da demanda; "
-                            "depois maximiza o VPL dentro da faixa encontrada.")
-        explicacao.setWordWrap(True)
-        layout.addWidget(explicacao)
-        self.formulario = QWidget()
-        layout.addWidget(self.formulario)
-        form = QFormLayout(self.formulario)
+        raiz.setContentsMargins(20, 20, 20, 0)
+        raiz.setSpacing(12)
+        raiz.addWidget(CabecalhoTela('Otimização de Planejamento',
+            'Equilibre a produção anual e selecione o cenário de maior retorno para cada talhão.'))
+        self.abas = QTabWidget()
+        self.abas.setObjectName('AbasOperacao')
+        self.abas.setDocumentMode(True)
+        self.abas.tabBar().setDrawBase(False)
+        raiz.addWidget(self.abas, 1)
+        self.formulario, config = self._nova_aba('Configuração')
+        self.opcoes_avancadas, avancado = self._nova_aba('Dados e solver')
+        _, resultados = self._nova_aba('Resultados')
+        barra_modelo = QHBoxLayout()
+        dica = QLabel('Defina a origem dos cenários e as metas de produção.')
+        qss.aplicar_variante(dica, 'dica')
+        dica.setWordWrap(True)
+        barra_modelo.addWidget(dica, 1)
+        salvar = QPushButton('Salvar modelo…')
+        salvar.clicked.connect(self._salvar_modelo)
+        carregar = QPushButton('Carregar modelo…')
+        carregar.clicked.connect(self._carregar_modelo)
+        barra_modelo.addWidget(carregar)
+        barra_modelo.addWidget(salvar)
+        config.addLayout(barra_modelo)
+        self._grid_config = QGridLayout()
+        self._grid_config.setSpacing(16)
+        config.addLayout(self._grid_config)
+        self.painel_origem, origem = self._painel('Origem dos cenários',
+            'Use os cenários do projeto aberto ou selecione um banco SQLite.')
+        self.painel_colunas, colunas = self._painel('Mapeamento das colunas',
+            'Associe as informações da tabela aos campos do planejamento.')
+        self.painel_metas, metas = self._painel('Horizonte e demanda',
+            'Defina o período de planejamento e a produção anual desejada.')
+        self.painel_unidades, unidades = self._painel('Unidades e saída',
+            'Confira a base dos valores e identifique as tabelas de resultado.')
+        self._paineis_config = (self.painel_origem, self.painel_metas, self.painel_unidades)
+        self._duas_colunas = None
         self.banco = QLineEdit()
         self.banco.setReadOnly(True)
+        self.banco.setPlaceholderText('Nenhum banco selecionado')
+        origem.addRow('Banco de dados', self.banco)
         linha = QHBoxLayout()
-        linha.addWidget(self.banco, 1)
-        escolher = QPushButton("Escolher SQLite…")
+        escolher = QPushButton('Escolher SQLite…')
         escolher.clicked.connect(self._escolher_banco)
-        linha.addWidget(escolher)
-        atual = QPushButton("Usar projeto aberto")
+        atual = QPushButton('Usar projeto aberto')
         atual.clicked.connect(self._usar_projeto)
         linha.addWidget(atual)
-        form.addRow("Banco de origem e resultados", linha)
+        linha.addWidget(escolher)
+        linha.addStretch(1)
+        origem.addRow(linha)
         self.tabela = QComboBox()
         self.tabela.currentTextChanged.connect(self._carregar_colunas)
-        form.addRow("Tabela de cenários", self.tabela)
+        origem.addRow('Tabela de cenários', self.tabela)
         self.colunas = {}
         for chave, rotulo in [('talhao', 'Talhão'), ('cenario', 'Cenário'), ('area', 'Área'),
                               ('idade', 'Idade'), ('vpl', 'VPL')]:
             combo = QComboBox()
+            combo.setMinimumContentsLength(5)
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             self.colunas[chave] = combo
-            form.addRow(f'Coluna: {rotulo}', combo)
+            colunas.addRow(rotulo, combo)
+        painel_solver, solver = self._painel('Parâmetros do solver',
+            'A etapa 1 reduz o maior desvio anual. A etapa 2 maximiza o VPL dentro da faixa encontrada.')
+        avancado.addWidget(self.painel_colunas)
+        avancado.addWidget(painel_solver)
         self.campos = {}
         for chave, rotulo, padrao, minimo, maximo, inteiro in [
             ('inicio', 'Ano inicial', 2026, 1900, 2200, True),
@@ -77,8 +112,8 @@ class TelaPlanejamento(TelaBase):
             ('regulacao', 'Primeiro ano regulado', 2027, 1900, 2200, True),
             ('demanda', 'Demanda anual (m³)', 30000, 0.000001, 1e12, False),
             ('alpha_max', 'Desvio máximo permitido (%)', 500, 0, 10000, False),
-            ('folga', 'Folga da etapa 2 (pontos percentuais)', 0, 0, 10000, False),
-            ('tolerancia', 'Tolerância numérica (pontos percentuais)', .001, 0, 100, False),
+            ('folga', 'Folga da etapa 2 (p.p.)', 0, 0, 10000, False),
+            ('tolerancia', 'Tolerância numérica (p.p.)', .001, 0, 100, False),
             ('gap_alpha', 'Gap da etapa 1 (%)', .01, 0, 100, False),
             ('gap_vpl', 'Gap da etapa 2 (%)', .1, 0, 100, False),
             ('tempo_alpha', 'Tempo limite da etapa 1 (s)', 1000, 1, 86400, True),
@@ -88,56 +123,132 @@ class TelaPlanejamento(TelaBase):
             campo = QSpinBox() if inteiro else QDoubleSpinBox()
             if not inteiro:
                 campo.setDecimals(6)
+            campo.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
+            campo.setProperty('controles', 'mais_menos')
             campo.setRange(minimo, maximo)
             campo.setValue(padrao)
             self.campos[chave] = campo
-            form.addRow(rotulo, campo)
-        self.volume_ha = QCheckBox("Multiplicar os volumes anuais pela área")
-        self.vpl_ha = QCheckBox("Multiplicar o VPL pela área")
-        form.addRow("Volumes informados por hectare", self.volume_ha)
-        form.addRow("VPL informado por hectare", self.vpl_ha)
+            (metas if chave in ('inicio', 'fim', 'regulacao', 'demanda', 'alpha_max') else solver).addRow(rotulo, campo)
+        self.volume_ha = QCheckBox('Volumes anuais por hectare')
+        self.volume_ha.setToolTip('Multiplica os volumes anuais pela área do talhão.')
+        self.vpl_ha = QCheckBox('VPL por hectare')
+        self.vpl_ha.setToolTip('Multiplica o VPL pela área do talhão.')
+        unidades.addRow(self.volume_ha)
+        unidades.addRow(self.vpl_ha)
         self.prefixo = QLineEdit('vpl_taper_2etapas')
-        form.addRow("Sufixo das tabelas de resultado", self.prefixo)
-        dica = QLabel("Restrições adicionais: limite a soma da coluna nos cenários escolhidos. "
-                      "Para um limite anual, selecione a coluna do ano. Essas restrições valem nas duas etapas.")
-        dica.setWordWrap(True)
-        form.addRow(dica)
+        unidades.addRow('Sufixo dos resultados', self.prefixo)
+        explicacao = QLabel('Marque apenas os valores que precisam ser multiplicados pela área do talhão.')
+        explicacao.setWordWrap(True)
+        qss.aplicar_variante(explicacao, 'dica')
+        unidades.addRow(explicacao)
+        config.addStretch(1)
+        painel_restricoes, form_restricoes = self._painel('Restrições adicionais',
+            'Limite a soma de uma coluna nos cenários escolhidos. Para um limite anual, '
+            'selecione a coluna do ano. As restrições valem nas duas etapas.')
+        avancado.addWidget(painel_restricoes)
         self.restricoes = QTableWidget(0, 4)
         self.restricoes.setHorizontalHeaderLabels(['Coluna', 'Relação', 'Limite', 'Por hectare'])
-        self.restricoes.setMinimumHeight(140)
-        self.restricoes.horizontalHeader().setStretchLastSection(True)
-        form.addRow(self.restricoes)
+        self.restricoes.setMinimumHeight(160)
+        self.restricoes.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.restricoes.setAlternatingRowColors(True)
+        form_restricoes.addRow(self.restricoes)
         acoes = QHBoxLayout()
-        adicionar = QPushButton("Adicionar restrição")
+        adicionar = QPushButton('Adicionar restrição')
         adicionar.clicked.connect(self._adicionar_restricao)
         acoes.addWidget(adicionar)
-        remover = QPushButton("Remover selecionada")
+        remover = QPushButton('Remover selecionada')
         remover.clicked.connect(lambda: self.restricoes.removeRow(self.restricoes.currentRow())
                                 if self.restricoes.currentRow() >= 0 else None)
         acoes.addWidget(remover)
-        form.addRow(acoes)
-        parametros = QHBoxLayout()
-        salvar = QPushButton("Salvar modelo…")
-        salvar.clicked.connect(self._salvar_modelo)
-        carregar = QPushButton("Carregar modelo…")
-        carregar.clicked.connect(self._carregar_modelo)
-        parametros.addWidget(salvar)
-        parametros.addWidget(carregar)
-        form.addRow(parametros)
-        self.executar = QPushButton("Otimizar em duas etapas")
-        self.executar.clicked.connect(self._executar)
-        layout.addWidget(self.executar)
-        self.status = QLabel("Configure o executável CPLEX em Configurações.")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        acoes.addStretch(1)
+        form_restricoes.addRow(acoes)
+        avancado.addStretch(1)
+        self.painel_producao, form_producao = self._painel('Produção anual',
+            'Após a otimização, acompanhe os volumes e os desvios em relação à demanda.')
+        resultados.addWidget(self.painel_producao)
         self.producao = QTableWidget(0, 4)
         self.producao.setHorizontalHeaderLabels(['Ano', 'Volume taper (m³)', 'Desvio (%)', 'Regulado'])
-        layout.addWidget(self.producao)
+        self.producao.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.producao.setAlternatingRowColors(True)
+        self.producao.verticalHeader().hide()
+        self.producao.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.producao.setMinimumHeight(220)
+        form_producao.addRow(self.producao)
+        painel_log, form_log = self._painel('Registro de execução')
+        resultados.addWidget(painel_log)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setPlaceholderText('As mensagens do solver aparecerão aqui durante a execução.')
         self.log.setMaximumBlockCount(10000)
-        layout.addWidget(self.log)
+        self.log.setMinimumHeight(160)
+        form_log.addRow(self.log)
+        resultados.addStretch(1)
+        rodape = QWidget()
+        rodape.setObjectName('BarraExecucao')
+        barra = QVBoxLayout(rodape)
+        barra.setContentsMargins(16, 12, 16, 12)
+        self.status = QLabel('Configure o executável CPLEX em Configurações.')
+        self.status.setWordWrap(True)
+        qss.aplicar_variante(self.status, 'dica')
+        barra.addWidget(self.status)
+        linha = QHBoxLayout()
+        ajuda = QLabel('Objetivo: regular a produção → maximizar o VPL')
+        qss.aplicar_variante(ajuda, 'dica')
+        ajuda.setWordWrap(True)
+        linha.addWidget(ajuda, 1)
+        self.executar = QPushButton('Otimizar planejamento')
+        qss.aplicar_variante(self.executar, 'salvar')
+        icones.aplicar_icone(self.executar, 'gerar', cor='white')
+        self.executar.clicked.connect(self._executar)
+        linha.addWidget(self.executar)
+        barra.addLayout(linha)
+        raiz.addWidget(rodape)
+        self._ajustar_paineis()
         self.recarregar_lista()
+
+    def _nova_aba(self, titulo):
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        corpo = QWidget()
+        layout = QVBoxLayout(corpo)
+        layout.setContentsMargins(0, 12, 4, 16)
+        layout.setSpacing(16)
+        scroll.setWidget(corpo)
+        self.abas.addTab(scroll, titulo)
+        return corpo, layout
+
+    def _painel(self, titulo, descricao=None):
+        painel = PainelOperacao(titulo, descricao=descricao)
+        form = QFormLayout(painel.corpo)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setVerticalSpacing(12)
+        form.setHorizontalSpacing(12)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        return painel, form
+
+    def resizeEvent(self, evento):
+        super().resizeEvent(evento)
+        self._ajustar_paineis()
+
+    def _ajustar_paineis(self):
+        duas = self.width() >= 940
+        if duas == self._duas_colunas:
+            return
+        self._duas_colunas = duas
+        for painel in self._paineis_config:
+            self._grid_config.removeWidget(painel)
+        self._grid_config.setColumnStretch(0, 1)
+        self._grid_config.setColumnStretch(1, 1 if duas else 0)
+        if duas:
+            self._grid_config.addWidget(self.painel_origem, 0, 0, 1, 2)
+            self._grid_config.addWidget(self.painel_metas, 1, 0)
+            self._grid_config.addWidget(self.painel_unidades, 1, 1)
+        else:
+            for i, painel in enumerate(self._paineis_config):
+                self._grid_config.addWidget(painel, i, 0)
 
     def _escolher_banco(self):
         caminho, _ = QFileDialog.getOpenFileName(self, "Banco de planejamento", '',
@@ -190,6 +301,8 @@ class TelaPlanejamento(TelaBase):
         operador.addItems(['>=', '<=', '='])
         operador.setCurrentText(dados.get('operador', '>='))
         limite = QDoubleSpinBox()
+        limite.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
+        limite.setProperty('controles', 'mais_menos')
         limite.setDecimals(6)
         limite.setRange(-1e15, 1e15)
         limite.setValue(dados.get('limite', 0))
@@ -264,6 +377,8 @@ class TelaPlanejamento(TelaBase):
             return
         self.rodando = True
         self.formulario.setEnabled(False)
+        self.opcoes_avancadas.setEnabled(False)
+        self.abas.setCurrentIndex(2)
         self.executar.setEnabled(False)
         self.log.clear()
         self.producao.setRowCount(0)
@@ -281,6 +396,7 @@ class TelaPlanejamento(TelaBase):
         thread = self._thread
         self.rodando = False
         self.formulario.setEnabled(True)
+        self.opcoes_avancadas.setEnabled(True)
         self.executar.setEnabled(True)
         self.window().travar_navegacao(False)
         if thread.erro:

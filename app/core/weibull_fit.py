@@ -22,7 +22,6 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import brentq
 
 from .intensidades import ETAPAS, TABELA_DETALHAMENTO, TABELA_RESUMO_TALHAO
 
@@ -59,6 +58,7 @@ def _ou_none(valor):
 def _estimar_shape_mle(x: np.ndarray) -> float:
     """Resolve a equação do MLE pro Shape diretamente:
     sum(x^k * ln(x)) / sum(x^k) - mean(ln(x)) - 1/k = 0."""
+    from scipy.optimize import brentq
     log_x = np.log(x)
     media_log_x = np.mean(log_x)
 
@@ -142,6 +142,7 @@ def _estimar_shape_mle_truncado(x: np.ndarray, tau: float) -> float:
     cada uma com brentq, e — se houver mais de uma raiz candidata —
     escolhe a de maior log-verossimilhança: é isso que a torna o MLE de
     verdade, não só "uma" solução qualquer da equação de score."""
+    from scipy.optimize import brentq
     log_x = np.log(x)
     log_tau = np.log(tau)
     media_log_x = np.mean(log_x)

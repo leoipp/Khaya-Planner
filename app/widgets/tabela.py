@@ -12,10 +12,11 @@ Treeview (o modelo dá virtualização de graça, o Treeview original não
 tinha — ver ressalva sobre `parametros_weibull_manejo` no app original).
 """
 from datetime import datetime
+from textwrap import fill
 
 from dateutil import parser as dateutil_parser
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QKeySequence, QPainterPath, QRegion
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QHeaderView, QInputDialog, QMenu, QTableView, QVBoxLayout,
     QWidget,
@@ -42,6 +43,18 @@ class _ViewTabela(QTableView):
     def definir_raio_recorte(self, raio):
         self._raio_recorte = max(0, int(raio))
         self._atualizar_mascara()
+
+    def paintEvent(self, evento):
+        super().paintEvent(evento)
+        if self.model() is not None and self.model().rowCount() == 0:
+            p = QPainter(self.viewport())
+            p.setPen(QColor(tema.obter().cor_ui('fg_muted')))
+            area = self.viewport().rect().adjusted(12, 8, -12, -8)
+            texto = 'Nenhum registro para exibir'
+            if area.height() > 90:
+                texto += '\nAdicione dados ou revise os filtros aplicados.'
+            p.drawText(area, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, texto)
+            p.end()
 
     def resizeEvent(self, evento):
         super().resizeEvent(evento)
@@ -165,10 +178,14 @@ class _ModeloTabela(QAbstractTableModel):
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if role != Qt.DisplayRole or orientation != Qt.Horizontal:
+        if orientation != Qt.Horizontal or role not in (Qt.DisplayRole, Qt.ToolTipRole):
             return None
         coluna = self._tabela.colunas[section]
         rotulo = self._tabela.rotulos.get(coluna, coluna)
+        if role == Qt.ToolTipRole:
+            return rotulo.replace('\n', ' ')
+        if '\n' not in rotulo and ' ' in rotulo and len(rotulo) > 20:
+            rotulo = fill(rotulo, width=18, break_long_words=False, break_on_hyphens=False)
         marcador = " 🔎" if self._tabela.filtros_coluna.get(coluna) else ""
         return f"{rotulo}{marcador}"
 
@@ -221,8 +238,12 @@ class Tabela(QWidget):
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.view.setShowGrid(False)
+        self.view.setAlternatingRowColors(True)
+        self.view.verticalHeader().setDefaultSectionSize(32)
         self.view.verticalHeader().setVisible(False)
         self.view.horizontalHeader().setSectionsClickable(True)
+        self.view.horizontalHeader().setMinimumSectionSize(100)
         self.view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.view.horizontalHeader().sectionClicked.connect(self._ordenar)
         self.view.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

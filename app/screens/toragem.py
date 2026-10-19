@@ -15,6 +15,8 @@ from ..core.db import conectar
 from ..core.desdobro import simular
 from ..core.toragem import tracar_arvore
 from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.cartao import Cartao
+from ..theme import qss, manager as tema
 from .base import TelaBase
 from .desdobro import SecaoTorete
 
@@ -51,7 +53,9 @@ class PerfilArvore(QWidget):
                 p.setBrush(QColor(20, 150, 180, 55))
                 p.drawRect(QRectF(centro-self.width()/2+8, yy(t['fim']),
                                  self.width()-16, (t['fim']-t['inicio'])*sy))
-            cor = QColor('#155e75' if t['comercial'] else '#b64747')
+            escuro = tema.obter().modo_atual() == 'dark'
+            cor = QColor(('#72ced3' if escuro else '#155e75') if t['comercial']
+                         else ('#f29b9b' if escuro else '#b64747'))
             p.setPen(QPen(cor, 1, Qt.PenStyle.DashLine))
             p.drawLine(QPointF(centro-t['diametro_topo']*sx/2-12, yy(t['fim'])),
                        QPointF(centro+t['diametro_topo']*sx/2+12, yy(t['fim'])))
@@ -79,22 +83,35 @@ class TelaToragem(TelaBase):
         self._timer.setInterval(200)
         self._timer.timeout.connect(self._calcular)
         raiz = QVBoxLayout(self)
+        raiz.setContentsMargins(20, 20, 20, 16)
+        raiz.setSpacing(16)
         cab = CabecalhoTela('Taper e Toragem',
             'DAP → perfil do fuste → toretes. O encaixe das tábuas usa a menor seção de cada torete.')
-        cab.adicionar_acao('Salvar estudo', self._salvar)
+        cab.adicionar_acao('Salvar estudo', self._salvar, icone='salvar', destaque=True)
         raiz.addWidget(cab)
         split = QSplitter(Qt.Orientation.Horizontal)
         raiz.addWidget(split, 1)
-        esquerda, meio, direita = QWidget(), QWidget(), QWidget()
+        cartao_controles = Cartao('Árvore e produto')
+        cartao_perfil = Cartao('Perfil do fuste')
+        cartao_corte = Cartao('Seção limitante')
+        for cartao in (cartao_perfil, cartao_corte):
+            cartao.layout().setStretch(1, 1)
+            cartao.layout().setStretch(2, 0)
+        esquerda, meio, direita = cartao_controles.corpo, cartao_perfil.corpo, cartao_corte.corpo
         painel_controles = QScrollArea()
         painel_controles.setWidgetResizable(True)
-        painel_controles.setWidget(esquerda)
-        painel_controles.setMinimumWidth(290)
-        for w in (painel_controles, meio, direita):
+        painel_controles.setWidget(cartao_controles)
+        painel_controles.setMinimumWidth(260)
+        for w in (painel_controles, cartao_perfil, cartao_corte):
             split.addWidget(w)
-        split.setSizes([320, 270, 400])
+        split.setSizes([280, 300, 360])
+        split.setChildrenCollapsible(False)
         le, lm, ld = QVBoxLayout(esquerda), QVBoxLayout(meio), QVBoxLayout(direita)
+        for layout in (le, lm, ld):
+            layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form.setVerticalSpacing(8)
         le.addLayout(form)
         self.modelos = QComboBox()
         form.addRow('Modelo de taper', self.modelos)
@@ -113,6 +130,8 @@ class TelaToragem(TelaBase):
         self.produtos = QComboBox()
         self.produtos.addItem('Dimensões manuais', None)
         form_produto = QFormLayout()
+        form_produto.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form_produto.setVerticalSpacing(8)
         le.addLayout(form_produto)
         form_produto.addRow('Produto salvo', self.produtos)
         self.comprimento = self._spin(.01, 30, 4)
@@ -135,11 +154,13 @@ class TelaToragem(TelaBase):
         le.addWidget(nota)
         le.addStretch()
         self.vista = PerfilArvore()
+        self.vista.setMinimumSize(180, 180)
         lm.addWidget(self.vista, 1)
         legenda = QLabel('Tracejado azul: torete comercial\nVermelho: fora do limite comercial')
         legenda.setWordWrap(True)
         lm.addWidget(legenda)
         self.secao = SecaoTorete()
+        self.secao.setMinimumSize(180, 180)
         ld.addWidget(self.secao, 1)
         self.info_secao = QLabel('Selecione um torete na tabela.')
         self.info_secao.setWordWrap(True)
@@ -151,12 +172,17 @@ class TelaToragem(TelaBase):
         self.tabela.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabela.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabela.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.tabela.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabela.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.tabela.horizontalHeader().setStretchLastSection(True)
+        self.tabela.setAlternatingRowColors(True)
+        self.tabela.setShowGrid(False)
+        self.tabela.verticalHeader().hide()
         self.tabela.setMinimumHeight(150)
         self.tabela.setMaximumHeight(230)
         raiz.addWidget(self.tabela)
         self.resumo = QLabel()
         self.resumo.setWordWrap(True)
+        qss.aplicar_variante(self.resumo, 'dica')
         raiz.addWidget(self.resumo)
         self.status = QLabel()
         raiz.addWidget(self.status)

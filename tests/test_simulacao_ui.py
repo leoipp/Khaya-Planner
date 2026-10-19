@@ -46,6 +46,53 @@ class SimulacaoUI(unittest.TestCase):
         for _ in range(10):
             self.app.processEvents()
 
+    def test_resultados_ocultos_nao_consultam_e_grafico_abre_sob_demanda(self):
+        self.tela._opcoes_grafico_coluna = {'': ('volume', False)}
+        with patch('app.screens.simulacao.simulacao.dados_grafico_resultado') as consulta:
+            self.tela._atualizar_grafico_resultado()
+            consulta.assert_not_called()
+        self.assertIsNone(self.tela.grafico_resultado._grafico)
+        self.tela._opcoes_grafico_coluna = {'': (None, False)}
+        self.tela._abrir_janela_graficos()
+        self.estabilizar()
+        self.assertIsNotNone(self.tela.grafico_resultado._grafico)
+        self.assertTrue(self.tela.dialogo_graficos.isVisible())
+
+    def test_workspace_filtra_cenarios_e_acoes_acompanham_selecao(self):
+        conn = conectar()
+        conn.executemany(
+            "INSERT INTO simulacao_cenarios (nome, status) VALUES (?, ?)",
+            [('Referência', 'Pendente'), ('Ciclo curto', 'Gerado'), ('Ciclo longo', 'Erro: exemplo')])
+        conn.commit()
+        conn.close()
+        self.tela._carregar_cenarios()
+        self.assertFalse(self.tela.botao_excluir_cenario.isEnabled())
+        self.tela.busca_cenarios.setText('ciclo')
+        self.assertEqual(len(self.tela.tabela_cenarios.linhas_originais), 2)
+        self.tela.filtro_status_cenarios.setCurrentText('Gerado')
+        linhas = self.tela.tabela_cenarios.linhas_originais
+        self.assertEqual(len(linhas), 1)
+        self.assertEqual(linhas[0][1][0], 'Ciclo curto')
+        self.tela.tabela_cenarios.selecionar_id(linhas[0][0])
+        self.assertTrue(self.tela.botao_ativar_cenario.isEnabled())
+        self.tela.busca_cenarios.setText('inexistente')
+        self.assertFalse(self.tela.botao_ativar_cenario.isEnabled())
+        self.tela.busca_cenarios.clear()
+        self.tela.filtro_status_cenarios.setCurrentIndex(0)
+        self.assertEqual(len(self.tela.tabela_cenarios.linhas_originais), 3)
+
+    def test_workspace_lateral_e_grade_sem_comprimir_formulario(self):
+        self.tela.resize(1440, 900)
+        self.tela.combo_modo_simulacao.setCurrentIndex(1)
+        self.estabilizar()
+        self.assertEqual(self.tela._grid.getItemPosition(
+            self.tela._grid.indexOf(self.tela.cartao_eventos))[:2], (0, 1))
+        self.assertGreater(self.tela.tabela_cenarios.height(), 220)
+        self.tela.combo_modo_simulacao.setCurrentIndex(2)
+        self.estabilizar()
+        self.assertEqual(self.tela._grid.getItemPosition(
+            self.tela._grid.indexOf(self.tela.cartao_eventos))[:2], (0, 0))
+
     def test_modos_preservam_valores_e_exibem_formulario_correto(self):
         self.tela.entry_idade_corte_raso.setText('25')
         self.tela.entry_idade_min_corte_raso.setText('20')

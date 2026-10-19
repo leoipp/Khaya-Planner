@@ -81,6 +81,7 @@ def _fonte(chave):
 def gerar(modo):
     c = tokens.PALETA_UI[modo]
     icones_numericos = (Path(__file__).resolve().parents[2] / 'assets' / 'controles').as_posix()
+    destaque_operacao = c['accent'] if modo == 'light' else '#7dc9ca'
     espaco_sm, espaco_md, espaco_xs, espaco_xl = (
         tokens.ESPACO_SM, tokens.ESPACO_MD, tokens.ESPACO_XS, tokens.ESPACO_XL)
 
@@ -110,6 +111,12 @@ def gerar(modo):
     QLabel[variante="titulo"] {{
         {_fonte("titulo_painel")}
     }}
+    QLabel#IndicadorProjeto {{ color: {c["fg"]}; font-size: 28px; font-weight: 700; }}
+    QListWidget#ResultadosNavegacao::item {{ padding: 12px; border-radius: 4px; }}
+    QListWidget#ResultadosNavegacao::item:selected {{
+        background: {c["selecao_bg"]}; color: {c["fg"]};
+    }}
+    QListWidget#ResultadosNavegacao::item:hover {{ background: {c["hover"]}; }}
     QLabel[variante="titulo-secao"] {{
         {_fonte("titulo_tela")}
     }}
@@ -145,17 +152,15 @@ def gerar(modo):
         min-height: 1px;
     }}
 
-    /* ---- cartão de seção (ver widgets/cartao.py) — cor FIXA, não muda
-       com o tema (spec de design própria, mesmo espírito da barra
-       lateral abaixo) ------------------------------------------------- */
+    /* Painéis compartilhados: superfície e bordas acompanham o tema. */
     QFrame#Cartao {{
-        background: {tokens.COR_CARTAO["fundo"]};
-        border: 1px solid {tokens.COR_CARTAO["borda"]};
-        border-radius: 12px;
+        background: {c["bg_widget"]};
+        border: 1px solid {c["borda"]};
+        border-radius: 10px;
     }}
     QLabel#CartaoTitulo {{
         background: transparent;
-        color: {tokens.COR_CARTAO["texto"]};
+        color: {c["fg"]};
         {_fonte("titulo_cartao")}
     }}
     QWidget#CartaoCorpo {{
@@ -167,6 +172,53 @@ def gerar(modo):
 
     QWidget#CabecalhoTela {{
         background: transparent;
+    }}
+
+    /* Áreas de trabalho: superfícies discretas e hierarquia consistente. */
+    QFrame#PainelOperacao {{
+        background: {c["bg_widget"]};
+        border: 1px solid {c["borda"]};
+        border-radius: 10px;
+    }}
+    QLabel#PainelOperacaoTitulo {{
+        color: {c["fg"]}; background: transparent;
+        font-size: 14px; font-weight: 600;
+    }}
+    QWidget[interface="operacao"] QWidget#CartaoCorpo {{
+        background: transparent;
+    }}
+    QTabWidget#AbasOperacao::pane {{ border: none; background: transparent; }}
+    QTabWidget#AbasOperacao > QTabBar::tab {{
+        background: transparent; color: {c["fg_muted"]};
+        border: none; border-bottom: 2px solid transparent;
+        border-radius: 0; padding: 12px 18px; margin-right: 12px;
+        font-size: 13px; font-weight: 500;
+    }}
+    QTabWidget#AbasOperacao > QTabBar::tab:selected {{
+        background: transparent; color: {destaque_operacao};
+        border-bottom: 2px solid {destaque_operacao}; font-weight: 600;
+    }}
+    QTabWidget#AbasOperacao > QTabBar::tab:hover:!selected {{
+        background: {c["hover"]}; color: {c["fg"]};
+    }}
+    QWidget#BarraExecucao {{
+        background: {c["bg_widget"]}; border-top: 1px solid {c["borda"]};
+    }}
+    QWidget[interface="operacao"] QComboBox {{ padding-right: 28px; }}
+    QWidget[interface="operacao"] QComboBox::drop-down {{
+        subcontrol-origin: padding; subcontrol-position: top right;
+        width: 24px; border: none;
+    }}
+    QWidget[interface="operacao"] QComboBox::down-arrow {{
+        image: url("{icones_numericos}/chevron-{modo}.svg"); width: 12px; height: 12px;
+    }}
+    QWidget[interface="operacao"] QCheckBox::indicator:checked {{
+        image: url("{icones_numericos}/check.svg");
+    }}
+    QWidget[interface="operacao"] QTableWidget {{
+        gridline-color: {c["borda"]}; border: 1px solid {c["borda"]};
+        background: {c["bg_widget"]}; alternate-background-color: {c["bg"]};
+        selection-background-color: {c["selecao_bg"]}; color: {c["fg"]};
     }}
 
     /* ---- barra lateral (ver widgets/barra_lateral.py) — cor FIXA nos
@@ -183,6 +235,27 @@ def gerar(modo):
         border-top-right-radius: 12px;
         border-bottom-right-radius: 12px;
     }}
+    QLabel#BarraLateralDescricao {{
+        color: #89a3b1; font-size: 9px; font-weight: 600; letter-spacing: 1px;
+    }}
+    QLabel#BarraLateralGrupo {{
+        color: #89a3b1; font-size: 9px; font-weight: 600;
+        padding: 14px 10px 5px 10px; letter-spacing: 1px;
+    }}
+    QScrollArea#NavegacaoRolavel, QWidget#NavegacaoConteudo {{
+        background: {tokens.COR_BARRA_LATERAL["fundo"]}; border: none;
+    }}
+    QScrollArea#NavegacaoRolavel QScrollBar:vertical {{
+        background: transparent; width: 4px;
+    }}
+    QScrollArea#NavegacaoRolavel QScrollBar::handle:vertical {{ background: #36515f; }}
+    QScrollArea#NavegacaoRolavel QScrollBar::add-page:vertical,
+    QScrollArea#NavegacaoRolavel QScrollBar::sub-page:vertical {{ background: transparent; }}
+    QPushButton#BarraLateralProjeto {{
+        background: #213b48; color: #f2f7f9; border: 1px solid #36515f;
+        padding: 8px 10px; font-size: 11px; border-radius: 6px;
+    }}
+    QPushButton#BarraLateralProjeto:hover {{ background: #2d4b59; }}
     /* Trilho (ver window.py:_montar_central) — mesma cor de fundo do
        cartão da barra lateral, sem borda/cantos (é uma faixa fixa colada
        na borda esquerda da janela, não um cartão flutuante). */
@@ -195,8 +268,8 @@ def gerar(modo):
         border: none;
         border-radius: 8px;
         text-align: left;
-        padding: {espaco_sm}px 14px;
-        font-size: 13px;
+        padding: 9px 10px;
+        font-size: 12px;
         font-weight: 500;
     }}
     QPushButton#BarraLateralBotao:hover {{
@@ -234,7 +307,8 @@ def gerar(modo):
         color: {c["fg"]};
         border: 1px solid {c["borda"]};
         border-radius: 6px;
-        padding: {espaco_sm}px {espaco_md}px;
+        padding: 7px {espaco_md}px;
+        min-height: 16px;
         {_fonte("botao")}
     }}
     QPushButton:hover {{
@@ -269,6 +343,9 @@ def gerar(modo):
         background: {c["accent_hover"]};
         border-color: {c["accent_hover"]};
     }}
+    QPushButton[variante="salvar"]:disabled, QPushButton[variante="accent"]:disabled {{
+        background: {c["trough"]}; color: {c["disabled_fg"]}; border-color: {c["borda"]};
+    }}
 
     /* Botão destrutivo (Excluir de verdade — apaga um registro) — só o
        texto/ícone ficam vermelhos, fundo/borda continuam neutros (não é
@@ -298,29 +375,29 @@ def gerar(modo):
         background: {c["bg_widget"]};
         color: {c["fg"]};
         border: 1px solid {c["borda"]};
-        border-radius: 4px;
-        padding: {espaco_xs}px {espaco_sm}px;
+        border-radius: 6px;
+        padding: 6px {espaco_sm}px;
         selection-background-color: {c["selecao_bg"]};
         {_fonte("entrada")}
     }}
     /* Placeholder (12px/400 no spec) não tem seletor próprio no Qt Style
        Sheets — QLineEdit/QPlainTextEdit não expõem `::placeholder`; o
        texto de placeholder usa a cor/fonte que o Qt decide sozinho. */
-    QDoubleSpinBox[controles="mais_menos"] {{ padding-right: 30px; min-height: 24px; }}
-    QDoubleSpinBox[controles="mais_menos"]::up-button {{
+    QAbstractSpinBox {{ padding-right: 30px; min-height: 18px; }}
+    QAbstractSpinBox::up-button {{
         subcontrol-origin: border; subcontrol-position: top right;
-        width: 26px; height: 17px;
+        width: 26px; height: 16px;
         background: {c["bg_widget"]}; border-left: 1px solid {c["borda"]};
     }}
-    QDoubleSpinBox[controles="mais_menos"]::down-button {{
+    QAbstractSpinBox::down-button {{
         subcontrol-origin: border; subcontrol-position: bottom right;
-        width: 26px; height: 17px;
+        width: 26px; height: 16px;
         background: {c["bg_widget"]}; border-left: 1px solid {c["borda"]};
     }}
-    QDoubleSpinBox[controles="mais_menos"]::up-arrow {{
+    QAbstractSpinBox::up-arrow {{
         image: url("{icones_numericos}/mais-{modo}.svg"); width: 12px; height: 12px;
     }}
-    QDoubleSpinBox[controles="mais_menos"]::down-arrow {{
+    QAbstractSpinBox::down-arrow {{
         image: url("{icones_numericos}/menos-{modo}.svg"); width: 12px; height: 12px;
     }}
     QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
@@ -336,8 +413,8 @@ def gerar(modo):
         background: {c["bg_widget"]};
         color: {c["fg"]};
         border: 1px solid {c["borda"]};
-        border-radius: 4px;
-        padding: {espaco_xs}px {espaco_sm}px;
+        border-radius: 6px;
+        padding: 6px 28px 6px {espaco_sm}px;
         {_fonte("entrada")}
     }}
     QComboBox:focus {{
@@ -349,7 +426,10 @@ def gerar(modo):
     }}
     QComboBox::drop-down {{
         border: none;
-        width: 20px;
+        subcontrol-origin: padding; subcontrol-position: top right; width: 24px;
+    }}
+    QComboBox::down-arrow {{
+        image: url("{icones_numericos}/chevron-{modo}.svg"); width: 12px; height: 12px;
     }}
     QComboBox QAbstractItemView {{
         background: {c["bg_widget"]};
@@ -385,12 +465,13 @@ def gerar(modo):
     QCheckBox::indicator:checked {{
         background: {c["accent"]};
         border-color: {c["accent"]};
+        image: url("{icones_numericos}/check.svg");
     }}
 
     /* ---- tabela (ver widgets/tabela.py) ----------------------------- */
     QTableView {{
         background: {c["bg_widget"]};
-        alternate-background-color: {c["bg_widget"]};
+        alternate-background-color: {c["bg"]};
         color: {c["fg"]};
         border: 1px solid {c["borda"]};
         border-radius: 0;
@@ -419,9 +500,8 @@ def gerar(modo):
         background: {c["bg"]};
         color: {c["fg_cabecalho"]};
         border: none;
-        border-right: 1px solid {c["borda"]};
         border-bottom: 1px solid {c["borda"]};
-        padding: {espaco_xs}px {espaco_sm}px;
+        padding: 9px {espaco_sm}px;
         {_fonte("cabecalho_tabela")}
     }}
     QTableCornerButton::section {{
@@ -436,23 +516,21 @@ def gerar(modo):
 
     /* ---- abas -------------------------------------------------------- */
     QTabWidget::pane {{
-        border: 1px solid {c["borda"]};
-        top: -1px;
+        border: none; background: transparent;
     }}
     QTabBar::tab {{
-        background: {c["bg_widget"]};
+        background: transparent;
         color: {c["fg_muted"]};
-        border: 1px solid {c["borda"]};
-        border-top-left-radius: 8px;
-        border-top-right-radius: 8px;
-        margin-right: 2px;
-        padding: {espaco_sm}px {espaco_md}px;
+        border: none; border-bottom: 2px solid transparent;
+        margin-right: 8px;
+        padding: 11px {espaco_md}px;
         {_fonte("botao")}
     }}
     QTabBar::tab:selected {{
-        background: {c["bg"]};
-        color: {c["fg"]};
-        font-weight: 700;
+        background: transparent;
+        color: {destaque_operacao};
+        border-bottom: 2px solid {destaque_operacao};
+        font-weight: 600;
     }}
     QTabBar::tab:hover:!selected {{
         background: {c["hover"]};
@@ -499,11 +577,11 @@ def gerar(modo):
 
     QScrollBar:vertical {{
         background: {c["bg"]};
-        width: 12px;
+        width: 8px;
         margin: 0;
     }}
     QScrollBar::handle:vertical {{
-        background: {tokens.COR_BARRA_LATERAL["fundo"]};
+        background: {c["borda"]};
         border-radius: 5px;
         min-height: 24px;
     }}
@@ -516,11 +594,11 @@ def gerar(modo):
 
     QScrollBar:horizontal {{
         background: {c["bg"]};
-        height: 12px;
+        height: 8px;
         margin: 0;
     }}
     QScrollBar::handle:horizontal {{
-        background: {tokens.COR_BARRA_LATERAL["fundo"]};
+        background: {c["borda"]};
         border-radius: 5px;
         min-width: 24px;
     }}
@@ -536,6 +614,9 @@ def gerar(modo):
         color: {c["fg"]};
         border: 1px solid {c["borda"]};
     }}
+    QMenu::item {{ padding: 8px 24px 8px 12px; }}
+    QSplitter::handle {{ background: transparent; }}
+    QSplitter::handle:hover {{ background: {c["selecao_bg"]}; }}
     QMenu::item:selected {{
         background: {c["selecao_bg"]};
     }}

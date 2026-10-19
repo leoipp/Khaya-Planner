@@ -20,6 +20,7 @@ from ..core.importador import ler_planilha, listar_abas
 from ..theme import icones, qss
 from ..widgets.cartao import Cartao
 from ..widgets.importacao_dialogs import escolher_aba, escolher_cabecalho, escolher_mapeamento_colunas
+from ..widgets.layout_fluxo import LayoutFluxo
 from .base import TelaBase
 from .configuracoes import TelaConfiguracoes
 
@@ -117,11 +118,15 @@ class TelaWeibull(TelaBase):
         self.botao_rodar_intensidades = QPushButton("Rodar simulação de intensidades...")
         icones.aplicar_icone(self.botao_rodar_intensidades, "gerar")
         self.botao_rodar_intensidades.clicked.connect(self._rodar_intensidades)
-        campos.addWidget(self.botao_rodar_intensidades)
+
         self.label_status_intensidades = QLabel("")
-        campos.addWidget(self.label_status_intensidades)
+
         campos.addStretch(1)
         layout.addLayout(campos)
+        acoes_intensidades = QHBoxLayout()
+        acoes_intensidades.addWidget(self.botao_rodar_intensidades)
+        acoes_intensidades.addWidget(self.label_status_intensidades, 1)
+        layout.addLayout(acoes_intensidades)
 
         self.checkbox_truncar_esquerda = QCheckBox(
             "Ajustar Weibull com truncagem à esquerda")
@@ -219,16 +224,15 @@ class TelaWeibull(TelaBase):
         qss.aplicar_variante(rotulo, "titulo")
         layout.addWidget(rotulo)
 
-        barra_acoes = QHBoxLayout()
-        self.botao_ajustar_simulacao = QPushButton("Ajustar com base na simulação de intensidades...")
+        barra_acoes = LayoutFluxo()
+        self.botao_ajustar_simulacao = QPushButton("Ajustar pela simulação…")
         icones.aplicar_icone(self.botao_ajustar_simulacao, "ajustar")
         self.botao_ajustar_simulacao.clicked.connect(self.ajustar_via_simulacao)
         barra_acoes.addWidget(self.botao_ajustar_simulacao)
-        self.botao_importar = QPushButton("Importar ajustes (Excel/CSV)...")
+        self.botao_importar = QPushButton("Importar ajustes…")
         icones.aplicar_icone(self.botao_importar, "importar")
         self.botao_importar.clicked.connect(self.importar_ajustes)
         barra_acoes.addWidget(self.botao_importar)
-        barra_acoes.addStretch(1)
         botao_exportar = QPushButton("Exportar para Excel...")
         icones.aplicar_icone(botao_exportar, "exportar")
         botao_exportar.clicked.connect(self.exportar_excel)

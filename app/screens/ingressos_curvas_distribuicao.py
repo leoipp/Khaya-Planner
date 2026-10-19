@@ -78,6 +78,8 @@ from ..theme import icones, qss
 from ..widgets.grafico_curvas import GraficoCurvasDistribuicao, GraficoDispersao
 from ..widgets.slider_intervalo import SliderIntervalo
 from ..widgets.tabela import Tabela
+from ..widgets.cabecalho_tela import CabecalhoTela
+from ..widgets.layout_fluxo import LayoutFluxo
 from .base import TelaBase
 
 TODOS_TALHOES = "Todos os talhões"
@@ -125,24 +127,24 @@ class TelaIngressosCurvasDistribuicao(TelaBase):
         self._base_ajuste_logistico = "ip"
 
         layout_raiz = QVBoxLayout(self)
-        layout_raiz.setContentsMargins(8, 8, 8, 8)
+        layout_raiz.setContentsMargins(20, 20, 20, 20)
+
+        layout_raiz.setSpacing(16)
+        cabecalho = CabecalhoTela('Ingressos e Curvas', 'Analise os ingressos por idade e acompanhe as curvas de distribuição.')
+        cabecalho.adicionar_acao("Exportar Excel…", self.exportar_excel, icone="exportar")
+        layout_raiz.addWidget(cabecalho)
 
         # ---- cabeçalho: talhão + média geral (mesma linha) + exportar ----
-        linha_cabecalho = QHBoxLayout()
+        linha_cabecalho = LayoutFluxo()
         linha_cabecalho.addWidget(QLabel("Talhão"))
         self.combo_talhao = QComboBox()
         self.combo_talhao.setMinimumWidth(220)
         self.combo_talhao.textActivated.connect(self._ao_mudar_talhao)
         linha_cabecalho.addWidget(self.combo_talhao)
-        self.checkbox_media_geral = QCheckBox("Ingressos: média geral por idade (entre talhões)")
+        self.checkbox_media_geral = QCheckBox("Média geral por idade")
         self.checkbox_media_geral.setChecked(True)
         self.checkbox_media_geral.toggled.connect(self._ao_alternar_media_geral)
         linha_cabecalho.addWidget(self.checkbox_media_geral)
-        linha_cabecalho.addStretch(1)
-        botao_exportar = QPushButton("Exportar Ingressos para Excel...")
-        icones.aplicar_icone(botao_exportar, "exportar")
-        botao_exportar.clicked.connect(self.exportar_excel)
-        linha_cabecalho.addWidget(botao_exportar)
         layout_raiz.addLayout(linha_cabecalho)
 
         # Layout fixo (sem QSplitter) — o tamanho da tela não muda, não

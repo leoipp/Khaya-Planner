@@ -20,6 +20,7 @@ from . import manager as tema
 
 # ---- navegação (barra lateral) --------------------------------------------
 _NAVEGACAO = {
+    "visao_geral": "house",
     "mapa": "map-trifold",
     "modelos": "cube",
     "sortimentos": "tree-evergreen",
