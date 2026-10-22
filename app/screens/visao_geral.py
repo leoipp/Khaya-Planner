@@ -114,7 +114,7 @@ class TelaVisaoGeral(TelaBase):
         atalhos_layout.addWidget(texto)
         acoes_atalhos = LayoutFluxo()
         for chave, rotulo in (('mapa', 'Explorar mapa'), ('simulacao', 'Simulação florestal'),
-                              ('toragem', 'Taper e toragem'), ('desdobro', 'Desdobro de madeira')):
+                              ('toragem', 'Desdobro')):
             botao = QPushButton(rotulo)
             icones.aplicar_icone(botao, chave)
             botao.clicked.connect(lambda _=False, c=chave: self.navegar.emit(c))

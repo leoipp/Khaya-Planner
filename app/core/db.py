@@ -7,6 +7,10 @@ import sys
 import time
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS classificacao_cerne_estado (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    dados TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS toragem_estado (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     dados TEXT NOT NULL
@@ -36,6 +40,16 @@ CREATE TABLE IF NOT EXISTS modelos (
 -- da colheita/desdobro) — o nó "Receita Total" do Construtor de
 -- Variáveis escolhe qual dos dois usar (botão direito no nó, padrão
 -- Madeira Serrada — ver core/construtores.py:_preco_sortimento_da_classe).
+CREATE TABLE IF NOT EXISTS classes_tabuas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    comprimento REAL NOT NULL CHECK (comprimento > 0),
+    espessura REAL NOT NULL CHECK (espessura > 0),
+    largura REAL NOT NULL CHECK (largura > 0),
+    preco REAL NOT NULL CHECK (preco >= 0),
+    rendimento REAL NOT NULL DEFAULT 35 CHECK (rendimento >= 0 AND rendimento <= 100)
+);
+
 CREATE TABLE IF NOT EXISTS sortimentos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
@@ -171,6 +185,8 @@ CREATE TABLE IF NOT EXISTS simulacao_cenarios_parquet (
     FOREIGN KEY (cenario_id) REFERENCES simulacao_cenarios(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS resumos_cenarios_estado (id INTEGER PRIMARY KEY CHECK(id=1), nome TEXT);
+
 CREATE TABLE IF NOT EXISTS resumos_cenarios_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL UNIQUE,
@@ -286,6 +302,9 @@ COLUNAS_NOVAS = {
     },
     "construtores_variaveis": {
         "ativo": "INTEGER NOT NULL DEFAULT 1",
+    },
+    "classes_tabuas": {
+        "rendimento": "REAL NOT NULL DEFAULT 35 CHECK (rendimento >= 0 AND rendimento <= 100)",
     },
     "sortimentos": {
         "rendimento": "REAL",
@@ -509,10 +528,10 @@ def _adicionar_colunas_faltantes(conn, tabela, colunas):
 # lê isto.
 TABELAS_ESSENCIAIS = frozenset({
     # schema estático (ver SCHEMA acima)
-    "modelos", "sortimentos", "custos_formacao", "custos_colheita",
+    "modelos", "sortimentos", "classes_tabuas", "classificacao_cerne_estado", "custos_formacao", "custos_colheita",
     "custo_colheita_produtividade", "parametros_weibull_manejo",
     "weibull_ifc_metadados", "simulacao_metadados", "simulacao_cenarios",
-    "construtores_variaveis", "configuracoes",
+    "construtores_variaveis", "configuracoes", "resumos_cenarios_config", "resumos_cenarios_estado",
     # recriadas em runtime pela importação/geração da simulação
     "base_ifc_talhao", "base_ifc_arvore", "weibull_ifc_talhao", "weibull_ifc_plot",
     "intensidades_resumo_talhao", "intensidades_resumo_parcela", "intensidades_detalhamento",

@@ -24,24 +24,41 @@ class SecaoTorete(QWidget):
         super().__init__()
         self.setMinimumSize(260, 260)
         self.diametro, self.cerne, self.pecas = 30, 50, []
+        self.diametro_com_casca = None
+        self.cores_pecas = []
+        self.contornos_produtos = []
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         # Escala fixa até 60 cm: variar o diâmetro varia o círculo visivelmente.
-        escala = (min(self.width(), self.height()) - 30) / max(60, self.diametro)
+        escala = (min(self.width(), self.height()) - 30) / max(60, self.diametro, self.diametro_com_casca or 0, max((d for d,c in self.contornos_produtos), default=0))
         p.translate(self.width() / 2, self.height() / 2)
         p.scale(escala, escala)
         r = self.diametro / 2
+        if self.diametro_com_casca is not None:
+            re = self.diametro_com_casca / 2
+            p.setPen(QPen(QColor('#785438'), 1 / escala))
+            p.setBrush(QColor('#785438'))
+            p.drawEllipse(QRectF(-re, -re, 2*re, 2*re))
         p.setPen(QPen(QColor('#785438'), 1 / escala))
         p.setBrush(QColor('#ebcf94'))
         p.drawEllipse(QRectF(-r, -r, 2*r, 2*r))
         rc = r * sqrt(self.cerne / 100)
         p.setBrush(QColor('#a76b43'))
         p.drawEllipse(QRectF(-rc, -rc, 2*rc, 2*rc))
+        for diametro, cor in self.contornos_produtos:
+            rp = diametro / 2
+            p.setPen(QPen(QColor(cor), 1 / escala, Qt.PenStyle.DashLine))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QRectF(-rp, -rp, 2*rp, 2*rp))
         p.setPen(QPen(QColor('#155e75'), 1 / escala))
         p.setBrush(QColor(60, 180, 200, 65))
-        for x, y, w, h in self.pecas:
+        for i, (x, y, w, h) in enumerate(self.pecas):
+            if i < len(self.cores_pecas):
+                cor = QColor(self.cores_pecas[i])
+                cor.setAlpha(190)
+                p.setBrush(cor)
             p.drawRect(QRectF(x, y, w, h))
         p.end()
 

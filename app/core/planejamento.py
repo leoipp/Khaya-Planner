@@ -1,6 +1,8 @@
 """Planejamento hierárquico via executável local do CPLEX (LP/SOL)."""
 import math
 import json
+import queue
+import threading
 from contextlib import closing
 import re
 import sqlite3
@@ -13,6 +15,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .temporarios import pasta_temporaria
+
 
 class ModeloInviavel(RuntimeError):
     def __init__(self, mensagem, conflitos):
@@ -22,7 +26,7 @@ class ModeloInviavel(RuntimeError):
 
 def publicar(caminho, frames):
     """Publica todas as tabelas numa transação, sem substituir tabelas existentes."""
-    with tempfile.TemporaryDirectory(prefix='khaya_resultado_') as pasta:
+    with tempfile.TemporaryDirectory(prefix='khaya_resultado_', dir=pasta_temporaria()) as pasta:
         temporario = str(Path(pasta, 'resultado.sqlite'))
         with closing(sqlite3.connect(temporario)) as conn:
             for nome, frame in frames.items():
@@ -116,6 +120,26 @@ def expressao(valores):
     return '\n  '.join(' '.join(termos[i:i+8]) for i in range(0, len(termos), 8)) or '0 x0'
 
 
+def validar_faixa_demanda(cfg, grupos, volumes):
+    """Detecta incompatibilidades anuais certas; não garante viabilidade conjunta."""
+    demanda = cfg['demanda']
+    for ano, valores in volumes.items():
+        if ano < cfg['regulacao']:
+            continue
+        minimo = float(sum(valores[g].min() for g in grupos))
+        maximo = float(sum(valores[g].max() for g in grupos))
+        necessario = max(0., 1 - maximo / demanda, minimo / demanda - 1)
+        if necessario > cfg['alpha_max'] + 1e-7:
+            raise ValueError(
+                f'Restrição de demanda inviável em {ano}: demanda de {demanda:,.2f} m³/ano, '
+                f'produção possível entre {minimo:,.2f} e {maximo:,.2f} m³. '
+                f'O limite de alfa informado é {cfg["alpha_max"]*100:g}%, '
+                f'mas esse ano exige pelo menos {necessario*100:.4f}%.\n'
+                'Confira os volumes, as unidades, o horizonte regulado e o limite de alfa. '
+                'O ALPHA_MAX = 5.0 do script original corresponde a 500% na tela, não a 5%. '
+                'Esse limite necessário por ano não garante a viabilidade conjunta das restrições.')
+
+
 def escrever_lp(destino, cfg, df, grupos, vpl, volumes, faixa=None):
     with open(destino, 'w', encoding='ascii') as f:
         f.write('Minimize\n obj: alpha\n' if faixa is None else
@@ -144,6 +168,46 @@ def escrever_lp(destino, cfg, df, grupos, vpl, volumes, faixa=None):
         f.write('Binary\n' + '\n'.join(f' x{i}' for i in range(len(df))) + '\nEnd\n')
 
 
+def _executar_com_log(comando, pasta, timeout, progresso):
+    """Drena a saída continuamente, mantendo o prazo e liberando o processo em erros."""
+    linhas = queue.Queue()
+    with subprocess.Popen(comando, cwd=pasta, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, errors='replace',
+                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) as proc:
+        def ler():
+            try:
+                for linha in proc.stdout:
+                    linhas.put(linha)
+            finally:
+                linhas.put(None)
+
+        leitor = threading.Thread(target=ler, daemon=True)
+        leitor.start()
+        inicio = time.monotonic()
+        saida = []
+        try:
+            while True:
+                if time.monotonic() - inicio > timeout:
+                    raise subprocess.TimeoutExpired(comando, timeout)
+                try:
+                    linha = linhas.get(timeout=.2)
+                except queue.Empty:
+                    continue
+                if linha is None:
+                    break
+                saida.append(linha)
+                if linha.strip():
+                    progresso(linha.rstrip())
+            codigo = proc.wait(timeout=max(.1, timeout - (time.monotonic() - inicio)))
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            leitor.join()
+            proc.stdout.close()
+    return codigo, ''.join(saida)
+
+
 def executar_solver(exe, pasta, etapa, cfg, progresso):
     comandos = [f'read etapa{etapa}.lp', f'set threads {cfg["threads"]}',
                 f'set timelimit {cfg["tempo_alpha" if etapa == 1 else "tempo_vpl"]}',
@@ -153,14 +217,12 @@ def executar_solver(exe, pasta, etapa, cfg, progresso):
     comandos += ['optimize', 'display solution quality', f'write etapa{etapa}.sol', 'quit']
     progresso(f'Etapa {etapa}: executando CPLEX…')
     inicio = time.monotonic()
-    proc = subprocess.run([exe, '-c', *comandos], cwd=pasta, capture_output=True,
-                          text=True, errors='replace',
-                          timeout=cfg['tempo_alpha' if etapa == 1 else 'tempo_vpl'] + 120,
-                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    log = proc.stdout + proc.stderr
+    codigo, log = _executar_com_log(
+        [exe, '-c', *comandos], pasta,
+        cfg['tempo_alpha' if etapa == 1 else 'tempo_vpl'] + 120, progresso)
     Path(pasta, f'etapa{etapa}.log').write_text(log, encoding='utf-8')
     sol = Path(pasta, f'etapa{etapa}.sol')
-    if proc.returncode or not sol.exists():
+    if codigo or not sol.exists():
         if 'infeasible' in log.lower():
             conflitos = []
             try:
@@ -170,7 +232,7 @@ def executar_solver(exe, pasta, etapa, cfg, progresso):
                                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
                 arquivo = Path(pasta, 'conflito.clp')
                 texto = arquivo.read_text(errors='replace') if arquivo.exists() else refino.stdout + refino.stderr
-                for nome in re.findall(r'^\s*((?:prescricao|min|max|adicional)_\d+)\s*:', texto, re.MULTILINE):
+                for nome in re.findall(r'^\s*((?:prescricao|min|max|adicional|restricao)_\d+)\s*:', texto, re.MULTILINE):
                     conflitos.append(dict(ETAPA=etapa, RESTRICAO=nome, STATUS='Member', DETALHAMENTO=texto))
                 if not conflitos:
                     conflitos.append(dict(ETAPA=etapa, RESTRICAO=None, STATUS='Diagnóstico', DETALHAMENTO=texto))
@@ -199,7 +261,7 @@ def executar_solver(exe, pasta, etapa, cfg, progresso):
     gap = float(meta['MIPRelativeGap']) if 'MIPRelativeGap' in meta else None
     if gap is None and bound is not None:
         gap = abs(objetivo-bound) / (abs(objetivo) + 1e-10)
-    return valores, {'ETAPA': etapa, 'OBJETIVO': 'Minimizar Alpha Taper' if etapa == 1 else 'Maximizar VPL',
+    return valores, {'ETAPA': etapa, 'OBJETIVO': ('Objetivo configurado' if cfg.get('modelo')=='configuravel' else 'Minimizar Alpha Taper' if etapa == 1 else 'Maximizar VPL'),
                      'RESULTADO': objetivo, 'STATUS': cab.get('solutionStatusString'),
                      'UNIDADE': 'proporção' if etapa == 1 else 'R$',
                      'BOUND': bound, 'GAP': gap,
@@ -231,6 +293,9 @@ def conferir(valores, cfg, grupos, df, volumes, faixa):
 
 
 def otimizar(caminho, exe, cfg, progresso=lambda msg: None):
+    if cfg.get('modelo')=='configuravel':
+        from .otimizacao_mista import otimizar as otimizar_misto
+        return otimizar_misto(caminho,exe,cfg,progresso)
     inicio = time.monotonic()
     exe = validar_solver(exe)
     prefixo = cfg.get('prefixo', 'vpl_taper_2etapas')
@@ -243,7 +308,8 @@ def otimizar(caminho, exe, cfg, progresso=lambda msg: None):
         raise ValueError("Já existem tabelas com esse prefixo. Informe outro nome para preservar os resultados anteriores.")
     progresso('Validando dados e montando o modelo…')
     df, grupos, vpl, volumes = preparar(caminho, cfg)
-    with tempfile.TemporaryDirectory(prefix='khaya_cplex_') as pasta:
+    validar_faixa_demanda(cfg, grupos, volumes)
+    with tempfile.TemporaryDirectory(prefix='khaya_cplex_', dir=pasta_temporaria()) as pasta:
         escrever_lp(Path(pasta, 'etapa1.lp'), cfg, df, grupos, vpl, volumes)
         try:
             v1, m1 = executar_solver(exe, pasta, 1, cfg, progresso)
@@ -257,6 +323,10 @@ def otimizar(caminho, exe, cfg, progresso=lambda msg: None):
                  (max(0, cfg['demanda'] * (1-alpha)), cfg['demanda'] * (1+alpha)))
         limite = min(cfg['alpha_max'], alpha + cfg['folga'] + cfg['tolerancia'])
         faixa = max(0, cfg['demanda'] * (1-limite)), cfg['demanda'] * (1+limite)
+        progresso(f'Etapa 1: {m1.get("STATUS", "")} | alpha = {alpha*100:.4f}% | '
+                  f'bound = {m1["BOUND"]} | gap = {m1["GAP"]}')
+        progresso(f'Etapa 2: preservar {faixa[0]:,.2f} ≤ produção anual ≤ {faixa[1]:,.2f} m³; '
+                  'maximizar VPL usando a solução da etapa 1 como MIP start.')
         raiz = ET.Element('CPLEXSolution', version='1.2')
         ET.SubElement(raiz, 'header', problemName='etapa2.lp')
         vars_ = ET.SubElement(raiz, 'variables')

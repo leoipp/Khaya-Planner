@@ -33,7 +33,7 @@ class NavegacaoGuiada(unittest.TestCase):
         d.telaEscolhida.connect(escolhidas.append)
         try:
             for termo, chave in [('otimizacao', 'planejamento'), ('ponta fina', 'toragem'),
-                                 ('serraria', 'desdobro')]:
+                                 ('serraria', 'toragem')]:
                 d.busca.setText(termo)
                 self.assertEqual(d.resultados.count(), 1)
                 self.assertEqual(d.resultados.currentItem().data(Qt.ItemDataRole.UserRole), chave)

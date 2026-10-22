@@ -5,6 +5,8 @@ orientações. É uma estimativa de aproveitamento, não um ótimo global.
 """
 from math import floor, isfinite, pi, sqrt
 
+import numpy as np
+
 
 def encaixar(diametro, largura, espessura, serra_mm=3):
     valores = (diametro, largura, espessura, serra_mm)
@@ -45,6 +47,24 @@ def fracao_cerne(peca, raio_cerne):
     return min(1.0, max(0.0, area / (w * h)))
 
 
+def fracoes_cerne(pecas, raio_cerne):
+    """Mesmas 80 faixas de fracao_cerne, calculadas em lotes NumPy."""
+    if not pecas:
+        return []
+    resultados=[]
+    faixas=(np.arange(80,dtype=float)+.5)[None,:]
+    for inicio in range(0,len(pecas),256):
+        x,y,w,h=np.asarray(pecas[inicio:inicio+256],dtype=float).T
+        yy=y[:,None]+faixas*h[:,None]/80
+        cordas=np.sqrt(np.maximum(0.,raio_cerne**2-yy**2))
+        larguras=np.maximum(0.,np.minimum((x+w)[:,None],cordas)-np.maximum(x[:,None],-cordas))
+        areas=np.where(np.abs(yy)<raio_cerne,larguras*h[:,None]/80,0.)
+        # Acumulação na mesma ordem da rotina escalar, inclusive nos limites de classe.
+        fracoes=np.cumsum(areas,axis=1)[:,-1]/(w*h)
+        resultados.extend(np.clip(fracoes,0.,1.).tolist())
+    return resultados
+
+
 def simular(diametro, largura, espessura, comprimento, comprimento_tora, cerne, serra_mm,
             rendimento_serraria=None, volume_tora_m3=None):
     if rendimento_serraria is not None and (
@@ -75,10 +95,53 @@ def simular(diametro, largura, espessura, comprimento, comprimento_tora, cerne, 
     quantidade_prevista = quantidade if rendimento_serraria is None else min(
         quantidade, floor(volume_tora * rendimento_serraria / 100 / volume_unitario + 1e-9))
     volume_previsto = quantidade_prevista * volume_unitario
-    return dict(pecas=pecas, quantidade=quantidade, longitudinais=n, volume_tora=volume_tora,
+    return dict(fracoes_cerne=fracoes, pecas=pecas, quantidade=quantidade, longitudinais=n, volume_tora=volume_tora,
                 quantidade_prevista=quantidade_prevista, volume_previsto=volume_previsto,
                 rendimento_previsto=100 * volume_previsto / volume_tora,
                 volume=volume, rendimento=100 * volume / volume_tora,
                 cerne=sum(f > .5 + 1e-6 for f in fracoes) * n,
                 alburno=sum(f < .5 - 1e-6 for f in fracoes) * n,
                 equilibradas=sum(abs(f - .5) <= 1e-6 for f in fracoes) * n)
+
+
+CLASSES_MADEIRA_PADRAO = [
+    dict(nome='C1', minimo=50., maximo=100., inclui_minimo=False, inclui_maximo=True, cor='#22a06b'),
+    dict(nome='C2', minimo=20., maximo=50., inclui_minimo=True, inclui_maximo=True, cor='#e2b52b'),
+    dict(nome='C3', minimo=0., maximo=20., inclui_minimo=True, inclui_maximo=False, cor='#df6262'),
+]
+
+
+def classificar_percentual(percentual, classes):
+    encontradas = [c for c in classes if
+        (percentual > c['minimo'] or (c['inclui_minimo'] and percentual == c['minimo'])) and
+        (percentual < c['maximo'] or (c['inclui_maximo'] and percentual == c['maximo']))]
+    if len(encontradas) != 1:
+        raise ValueError('Classes devem cobrir 0 a 100% sem lacunas ou sobreposição.')
+    return encontradas[0]
+
+
+def validar_classes(classes):
+    if not classes or len({c['nome'] for c in classes}) != len(classes):
+        raise ValueError('Informe classes com nomes distintos.')
+    for c in classes:
+        if not c['nome'].strip() or not 0 <= c['minimo'] < c['maximo'] <= 100:
+            raise ValueError('Classes: informe nomes e limites válidos entre 0 e 100%.')
+    pontos = sorted({0., 100.} | {c[k] for c in classes for k in ('minimo', 'maximo')})
+    for v in pontos + [(a+b)/2 for a,b in zip(pontos,pontos[1:])]:
+        classificar_percentual(v, classes)
+
+
+def classificar_tabuas(resultado, classes, volume_unitario):
+    """Classes do encaixe na seção; previsão proporcional, sem prometer seleção de tábuas."""
+    validar_classes(classes)
+    classificacoes = [classificar_percentual(100*f, classes) for f in resultado['fracoes_cerne']]
+    resumo = []
+    total = resultado['quantidade']
+    for c in classes:
+        teorica = sum(v['nome'] == c['nome'] for v in classificacoes) * resultado['longitudinais']
+        prevista = teorica * resultado['quantidade_prevista'] / total if total else 0
+        resumo.append(dict(nome=c['nome'], cor=c['cor'], quantidade_teorica=teorica,
+                           quantidade_prevista=prevista, volume_previsto=prevista*volume_unitario))
+    resultado['cores_pecas'] = [c['cor'] for c in classificacoes]
+    resultado['classes'] = resumo
+    return resumo

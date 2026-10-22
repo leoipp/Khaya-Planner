@@ -31,6 +31,7 @@ _NAVEGACAO = {
     "ingressos_curvas": "trend-up",
     "resumos_cenarios": "database",
     "planejamento": "chart-line",
+    "explorador_dados": "database",
     "configuracoes": "gear",
 }
 

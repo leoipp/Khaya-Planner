@@ -18,6 +18,8 @@ diferenças em relação ao script original:
   situacao='Remanescente', em vez de colunas-chave configuráveis.
 """
 import sqlite3
+from contextlib import contextmanager
+from itertools import groupby
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -364,6 +366,38 @@ def ajustar_grupo(
 # AJUSTE EM LOTE A PARTIR DA SIMULAÇÃO DE INTENSIDADES
 # ==========================================================
 
+@contextmanager
+def _grupos_remanescentes(conn):
+    """Lê um grupo por vez; a ordenação grande usa temporário em disco."""
+    chaves = 'talhao, int_raleio, int_desbaste_1, int_desbaste_2, etapa'
+    origem = f'FROM "{TABELA_DETALHAMENTO}" WHERE situacao = ?'
+    anterior = int(conn.execute('PRAGMA temp_store').fetchone()[0])
+    cursor = None
+    conn.execute('PRAGMA temp_store = FILE')
+    try:
+        total = conn.execute(
+            f'SELECT COUNT(*) FROM (SELECT {chaves} {origem} GROUP BY {chaves})',
+            ('Remanescente',),
+        ).fetchone()[0]
+        if not total:
+            raise ValueError('Não há árvores remanescentes na simulação de intensidades.')
+        cursor = conn.execute(
+            f'SELECT {chaves}, dap {origem} ORDER BY {chaves}', ('Remanescente',))
+
+        def grupos():
+            for chave, linhas in groupby(cursor, key=lambda linha: tuple(linha[:5])):
+                valores = np.fromiter(
+                    (float(linha[5]) if linha[5] is not None else np.nan for linha in linhas),
+                    dtype=float)
+                yield chave, valores
+
+        yield total, grupos()
+    finally:
+        if cursor is not None:
+            cursor.close()
+        conn.execute(f'PRAGMA temp_store = {anterior}')
+
+
 def ajustar_a_partir_da_simulacao(
     conn: sqlite3.Connection,
     progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -391,23 +425,6 @@ def ajustar_a_partir_da_simulacao(
             "\"Simulação de Intensidades\" antes de ajustar a Weibull."
         )
 
-    # Filtra situacao='Remanescente' no próprio SQL, não em pandas depois de
-    # carregar tudo — a tabela de detalhamento tem uma linha por árvore x
-    # etapa x combinação de intensidades, e trazer também as árvores
-    # "Removida" (que seriam descartadas no passo seguinte) pra memória só
-    # pra jogar fora dobra o consumo de RAM à toa numa base grande, podendo
-    # estourar memória antes mesmo de chegar no ajuste.
-    df_remanescente = pd.read_sql_query(
-        f'SELECT talhao, int_raleio, int_desbaste_1, int_desbaste_2, etapa, dap '
-        f'FROM "{TABELA_DETALHAMENTO}" WHERE situacao = ?',
-        conn, params=("Remanescente",),
-    )
-
-    if df_remanescente.empty:
-        raise ValueError("Não há árvores remanescentes na simulação de intensidades.")
-
-    colunas_chave = ["talhao", "int_raleio", "int_desbaste_1", "int_desbaste_2", "etapa"]
-
     # dap_med/dap_max/dap_min/ht_med/fustes_ha_removidos/vtcc_ha_removido
     # por etapa vêm direto do resumo por talhão da simulação de
     # intensidades (já calculado com a mesma chave), em vez de
@@ -425,67 +442,64 @@ def ajustar_a_partir_da_simulacao(
         f'SELECT {colunas_resumo_sql} FROM "{TABELA_RESUMO_TALHAO}"', conn
     ).set_index(["talhao", "int_raleio", "int_desbaste_1", "int_desbaste_2"])
 
-    grupos = df_remanescente.groupby(colunas_chave, sort=False, dropna=False)
-    total_grupos = grupos.ngroups
-
     linhas: List[tuple] = []
     falhas: List[Dict] = []
 
-    for numero, (chave, grupo) in enumerate(grupos, start=1):
-        talhao, int_raleio, int_desbaste_1, int_desbaste_2, etapa = chave
-        valores_dap = grupo["dap"].to_numpy()
+    with _grupos_remanescentes(conn) as (total_grupos, grupos):
+        for numero, (chave, valores_dap) in enumerate(grupos, start=1):
+            talhao, int_raleio, int_desbaste_1, int_desbaste_2, etapa = chave
 
-        # Busca o resumo (dap_med/dap_max/dap_min/...) ANTES do ajuste —
-        # com truncar_esquerda=True, precisa do dap_min de lá como `tau`
-        # (ver docstring desta função) pra passar pro ajuste; sem
-        # truncagem, só usaria depois mesmo (pra gravar na linha).
-        sufixo_intensidades = _SUFIXO_INTENSIDADES_POR_ETAPA[etapa]
-        chave_resumo = (talhao, int_raleio, int_desbaste_1, int_desbaste_2)
-        if chave_resumo in df_resumo.index:
-            linha_resumo = df_resumo.loc[chave_resumo]
-            dap_med = linha_resumo[f"dap_med_apos_{sufixo_intensidades}"]
-            dap_max = linha_resumo[f"dap_max_apos_{sufixo_intensidades}"]
-            dap_min = linha_resumo[f"dap_min_apos_{sufixo_intensidades}"]
-            ht_med = linha_resumo[f"ht_med_apos_{sufixo_intensidades}"]
-            fustes_ha_removidos = linha_resumo[f"fustes_ha_removidos_{sufixo_intensidades}"]
-            vtcc_ha_removido = linha_resumo[f"vtcc_ha_removido_{sufixo_intensidades}"]
-        else:
-            dap_med = dap_max = dap_min = ht_med = fustes_ha_removidos = vtcc_ha_removido = None
+            # Busca o resumo (dap_med/dap_max/dap_min/...) ANTES do ajuste —
+            # com truncar_esquerda=True, precisa do dap_min de lá como `tau`
+            # (ver docstring desta função) pra passar pro ajuste; sem
+            # truncagem, só usaria depois mesmo (pra gravar na linha).
+            sufixo_intensidades = _SUFIXO_INTENSIDADES_POR_ETAPA[etapa]
+            chave_resumo = (talhao, int_raleio, int_desbaste_1, int_desbaste_2)
+            if chave_resumo in df_resumo.index:
+                linha_resumo = df_resumo.loc[chave_resumo]
+                dap_med = linha_resumo[f"dap_med_apos_{sufixo_intensidades}"]
+                dap_max = linha_resumo[f"dap_max_apos_{sufixo_intensidades}"]
+                dap_min = linha_resumo[f"dap_min_apos_{sufixo_intensidades}"]
+                ht_med = linha_resumo[f"ht_med_apos_{sufixo_intensidades}"]
+                fustes_ha_removidos = linha_resumo[f"fustes_ha_removidos_{sufixo_intensidades}"]
+                vtcc_ha_removido = linha_resumo[f"vtcc_ha_removido_{sufixo_intensidades}"]
+            else:
+                dap_med = dap_max = dap_min = ht_med = fustes_ha_removidos = vtcc_ha_removido = None
 
-        tau = float(dap_min) if (truncar_esquerda and dap_min is not None and not pd.isna(dap_min)) else None
-        ajuste = ajustar_grupo(valores_dap, truncar_esquerda=truncar_esquerda, tau=tau)
+            tau = float(dap_min) if (truncar_esquerda and dap_min is not None and not pd.isna(dap_min)) else None
+            ajuste = ajustar_grupo(valores_dap, truncar_esquerda=truncar_esquerda, tau=tau)
 
-        if ajuste["status"] == "OK":
-            chave_intensidade = _INTENSIDADE_DA_ETAPA.get(etapa, "int_desbaste_2")
-            intensidade_etapa = {
-                "int_raleio": int_raleio, "int_desbaste_1": int_desbaste_1, "int_desbaste_2": int_desbaste_2,
-            }[chave_intensidade]
+            if ajuste["status"] == "OK":
+                chave_intensidade = _INTENSIDADE_DA_ETAPA.get(etapa, "int_desbaste_2")
+                intensidade_etapa = {
+                    "int_raleio": int_raleio, "int_desbaste_1": int_desbaste_1, "int_desbaste_2": int_desbaste_2,
+                }[chave_intensidade]
 
-            # Mesmo filtro (sem NaN, sem <=0) que ajustar_grupo aplicou por
-            # dentro pra chegar no n_valido do ajuste — refeito aqui pra CV/dg
-            # saírem sobre exatamente a mesma amostra do Weibull do grupo.
-            x_valido = valores_dap[~np.isnan(valores_dap)]
-            x_valido = x_valido[x_valido > 0]
-            cv_dap, dg = _calcular_cv_e_dg(x_valido)
+                # Mesmo filtro (sem NaN, sem <=0) que ajustar_grupo aplicou por
+                # dentro pra chegar no n_valido do ajuste — refeito aqui pra CV/dg
+                # saírem sobre exatamente a mesma amostra do Weibull do grupo.
+                x_valido = valores_dap[~np.isnan(valores_dap)]
+                x_valido = x_valido[x_valido > 0]
+                cv_dap, dg = _calcular_cv_e_dg(x_valido)
 
-            linhas.append((
-                talhao, etapa, float(intensidade_etapa),
-                float(ajuste["scale"]), float(ajuste["shape"]),
-                _ou_none(dap_med), _ou_none(dap_max), _ou_none(dap_min), _ou_none(fustes_ha_removidos),
-                _ou_none(ht_med), _ou_none(vtcc_ha_removido), _ou_none(cv_dap), _ou_none(dg),
-                float(int_raleio), float(int_desbaste_1), float(int_desbaste_2),
-                f"Ajustado a partir da simulação de intensidades (N={ajuste['n_valido']}).",
-                int(ajuste["truncado"]),
-            ))
-        else:
-            falhas.append({
-                "talhao": talhao, "etapa": etapa,
-                "int_raleio": int_raleio, "int_desbaste_1": int_desbaste_1, "int_desbaste_2": int_desbaste_2,
-                "status": ajuste["status"], "mensagem": ajuste["mensagem"],
-            })
+                linhas.append((
+                    talhao, etapa, float(intensidade_etapa),
+                    float(ajuste["scale"]), float(ajuste["shape"]),
+                    _ou_none(dap_med), _ou_none(dap_max), _ou_none(dap_min), _ou_none(fustes_ha_removidos),
+                    _ou_none(ht_med), _ou_none(vtcc_ha_removido), _ou_none(cv_dap), _ou_none(dg),
+                    float(int_raleio), float(int_desbaste_1), float(int_desbaste_2),
+                    f"Ajustado a partir da simulação de intensidades (N={ajuste['n_valido']}).",
+                    int(ajuste["truncado"]),
+                ))
+            else:
+                falhas.append({
+                    "talhao": talhao, "etapa": etapa,
+                    "int_raleio": int_raleio, "int_desbaste_1": int_desbaste_1, "int_desbaste_2": int_desbaste_2,
+                    "status": ajuste["status"], "mensagem": ajuste["mensagem"],
+                })
 
-        if progress_callback is not None:
-            progress_callback(numero, total_grupos)
+            if progress_callback is not None:
+                progress_callback(numero, total_grupos)
 
     conn.execute("DELETE FROM parametros_weibull_manejo")
     conn.executemany(

@@ -11,3 +11,5 @@ openpyxl==3.1.5
 xlsxwriter==3.2.0
 Pillow==10.4.0
 pyshp==2.3.1
+
+numba==0.68.0

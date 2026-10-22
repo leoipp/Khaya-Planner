@@ -77,6 +77,7 @@ class TelaResumosCenarios(TelaBase):
         super().__init__(parent)
         self._colunas = {}
         self._configs = {}
+        self._projeto_carregado=None
         self._thread = None
         self._thread_mapa = None
         raiz = QVBoxLayout(self)
@@ -149,6 +150,8 @@ class TelaResumosCenarios(TelaBase):
         ml = QVBoxLayout(cartao_metricas.corpo)
         ml.setContentsMargins(0, 0, 0, 0); ml.setSpacing(10)
         self.tabela_metricas = QTableWidget(0, 4)
+        # A célula deve acomodar a fonte e o padding do controle no tema atual.
+        self.tabela_metricas.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.tabela_metricas.setMinimumHeight(190)
         self.tabela_metricas.verticalHeader().setDefaultSectionSize(34)
         self.tabela_metricas.setHorizontalHeaderLabels(
@@ -178,7 +181,8 @@ class TelaResumosCenarios(TelaBase):
         sf.addRow("Configuração salva", self.combo_configs); sf.addRow("Nome da configuração", self.nome_config)
         sf.addRow("Tabela no banco", self.nome_tabela)
         linha = QHBoxLayout(); salvar = QPushButton("Salvar configuração"); carregar = QPushButton("Carregar")
-        salvar.clicked.connect(self._salvar); carregar.clicked.connect(self._carregar_config)
+        salvar.clicked.connect(self._salvar); carregar.clicked.connect(lambda: self._carregar_config())
+        self.combo_configs.activated.connect(lambda _: self._carregar_config())
         linha.addWidget(salvar); linha.addWidget(carregar); sf.addRow(linha)
         acoes = QHBoxLayout(); previa = QPushButton("Gerar prévia"); exportar = QPushButton("Exportar SQLite...")
         icones.aplicar_icone(previa, "atualizar"); icones.aplicar_icone(exportar, "exportar")
@@ -206,8 +210,31 @@ class TelaResumosCenarios(TelaBase):
             self._colunas = {f: resumos_cenarios.colunas_fonte(conn, f) for f in resumos_cenarios.FONTES}
             self._configs = {row[1]: json.loads(row[2]) for row in resumos_cenarios.listar_configuracoes(conn)}
         finally: conn.close()
+        caminho=str(projeto.caminho_trabalho())
+        mesma_sessao=self._projeto_carregado==caminho
+        if not mesma_sessao:
+            self.tabela_metricas.setRowCount(0);self.lista_grupos.clear()
+            self.chaves_a.clear();self.chaves_b.clear();self.filtro_colunas.clear();self.filtro_valores.clear()
+            self.nome_config.clear();self.nome_tabela.setText('resumo_cenario_talhao')
+            self.combo_a.setCurrentIndex(max(0,self.combo_a.findData('populacao')))
+            self.combo_b.setCurrentIndex(max(0,self.combo_b.findData(None)))
+            self.combo_pivo_coluna.setCurrentIndex(0);self.combo_pivo_valor.setCurrentIndex(0)
+        anterior=self.combo_configs.currentText()
+        self.combo_configs.blockSignals(True)
         self.combo_configs.clear(); self.combo_configs.addItems(self._configs)
+        if anterior in self._configs:self.combo_configs.setCurrentText(anterior)
+        self.combo_configs.blockSignals(False)
         self._atualizar_colunas()
+        if not mesma_sessao:
+            self._projeto_carregado=caminho
+            conn=conectar()
+            try:
+                conn.execute('CREATE TABLE IF NOT EXISTS resumos_cenarios_estado (id INTEGER PRIMARY KEY CHECK(id=1), nome TEXT)')
+                linha=conn.execute('SELECT nome FROM resumos_cenarios_estado WHERE id=1').fetchone()
+                conn.commit()
+            finally:conn.close()
+            if linha and linha[0] in self._configs:self.combo_configs.setCurrentText(linha[0])
+            self._carregar_config(persistir=False)
 
     def novo_registro(self):
         self.tabela_previa.clear(); self.label_status.setText("Configure o resumo e gere uma prévia.")
@@ -222,7 +249,7 @@ class TelaResumosCenarios(TelaBase):
         self.lista_grupos.clear()
         colunas = self._todas_colunas()
         fonte_a = self.combo_a.currentData()
-        for coluna in colunas:
+        for coluna in colunas+list(c for c in atuais if c not in colunas):
             item = QListWidgetItem(coluna); item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             padrao = coluna == f"{fonte_a}.cenario" or coluna.upper() == f"{fonte_a}.TALHÃO".upper()
             item.setCheckState(atuais.get(coluna, Qt.CheckState.Checked if padrao else Qt.CheckState.Unchecked))
@@ -230,10 +257,12 @@ class TelaResumosCenarios(TelaBase):
         for combo in (self.combo_pivo_coluna, self.combo_pivo_valor):
             atual = combo.currentData(); combo.clear(); combo.addItem("(nenhum)", None)
             for c in colunas: combo.addItem(c, c)
+            if atual is not None and combo.findData(atual)<0:combo.addItem(str(atual)+' (indisponível)',atual)
             idx = combo.findData(atual); combo.setCurrentIndex(max(idx, 0))
         for linha in range(self.tabela_metricas.rowCount()):
             combo = self.tabela_metricas.cellWidget(linha, 0); atual = combo.currentData(); combo.clear()
             for c in colunas: combo.addItem(c, c)
+            if atual is not None and combo.findData(atual)<0:combo.addItem(str(atual)+' (indisponível)',atual)
             combo.setCurrentIndex(max(combo.findData(atual), 0))
 
     def _adicionar_metrica(self, dados=None):
@@ -247,6 +276,7 @@ class TelaResumosCenarios(TelaBase):
         self.tabela_metricas.setCellWidget(linha, 2, alias)
         self.tabela_metricas.setCellWidget(linha, 3, arred)
         if dados:
+            if coluna.findData(dados['coluna'])<0:coluna.addItem(str(dados['coluna'])+' (indisponível)',dados['coluna'])
             coluna.setCurrentIndex(max(coluna.findData(dados["coluna"]), 0))
             agg.setCurrentIndex(max(agg.findData(dados["agregacao"]), 0)); alias.setText(dados.get("alias", ""))
             arred.setCurrentIndex(max(arred.findData(dados.get("arredondar")), 0))
@@ -284,7 +314,7 @@ class TelaResumosCenarios(TelaBase):
         return {"fonte_a":self.combo_a.currentData(),"fonte_b":self.combo_b.currentData(),
                 "tipo_join":self.combo_join.currentData(),"chaves_a":self._lista(self.chaves_a.text()),
                 "chaves_b":self._lista(self.chaves_b.text()),"grupos":grupos,"metricas":metricas,
-                "pivo":pivo,"filtro_chaves":filtro}
+                "pivo":pivo,"filtro_chaves":filtro,"nome_tabela":self.nome_tabela.text().strip()}
 
     def _salvar(self):
         nome=self.nome_config.text().strip()
@@ -292,11 +322,24 @@ class TelaResumosCenarios(TelaBase):
         try:
             conn=conectar(); resumos_cenarios.salvar_configuracao(conn,nome,self._cfg()); conn.close(); projeto.sincronizar()
             self.recarregar_lista()
+            self.combo_configs.setCurrentText(nome)
+            self._lembrar_config(nome)
+            self.label_status.setText(f'Configuração "{nome}" salva no projeto.')
         except Exception as e: QMessageBox.critical(self,"Resumos",str(e))
 
-    def _carregar_config(self):
+    def _lembrar_config(self,nome):
+        conn=conectar()
+        try:
+            conn.execute('CREATE TABLE IF NOT EXISTS resumos_cenarios_estado (id INTEGER PRIMARY KEY CHECK(id=1), nome TEXT)')
+            conn.execute('INSERT INTO resumos_cenarios_estado VALUES(1,?) ON CONFLICT(id) DO UPDATE SET nome=excluded.nome',(nome,))
+            conn.commit()
+        finally:conn.close()
+        projeto.sincronizar()
+
+    def _carregar_config(self,persistir=True):
         cfg=self._configs.get(self.combo_configs.currentText())
         if not cfg: return
+        self.nome_tabela.setText(cfg.get('nome_tabela','resumo_cenario_talhao'))
         self.combo_a.setCurrentIndex(max(self.combo_a.findData(cfg.get("fonte_a")),0))
         self.combo_b.setCurrentIndex(max(self.combo_b.findData(cfg.get("fonte_b")),0)); self._atualizar_colunas()
         self.combo_join.setCurrentIndex(max(self.combo_join.findData(cfg.get("tipo_join")),0))
@@ -305,10 +348,18 @@ class TelaResumosCenarios(TelaBase):
         self.filtro_colunas.setText(", ".join(filtro.get("colunas",[])))
         self.filtro_valores.setPlainText("\n".join(" + ".join(map(str, linha)) for linha in filtro.get("valores",[])))
         grupos=set(cfg.get("grupos",[]))
+        disponiveis={self.lista_grupos.item(i).text() for i in range(self.lista_grupos.count())}
+        for coluna in grupos-disponiveis:
+            item=QListWidgetItem(coluna);item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable);self.lista_grupos.addItem(item)
         for i in range(self.lista_grupos.count()): self.lista_grupos.item(i).setCheckState(Qt.CheckState.Checked if self.lista_grupos.item(i).text() in grupos else Qt.CheckState.Unchecked)
         self.tabela_metricas.setRowCount(0)
         for m in cfg.get("metricas",[]): self._adicionar_metrica(m)
-        p=cfg.get("pivo",{}); self.combo_pivo_coluna.setCurrentIndex(max(self.combo_pivo_coluna.findData(p.get("coluna")),0)); self.combo_pivo_valor.setCurrentIndex(max(self.combo_pivo_valor.findData(p.get("valor")),0)); self.combo_pivo_agg.setCurrentIndex(max(self.combo_pivo_agg.findData(p.get("agregacao")),0)); self.nome_config.setText(self.combo_configs.currentText())
+        p=cfg.get('pivo',{})
+        for combo,chave in [(self.combo_pivo_coluna,'coluna'),(self.combo_pivo_valor,'valor')]:
+            valor=p.get(chave)
+            if valor is not None and combo.findData(valor)<0:combo.addItem(str(valor)+' (indisponível)',valor)
+        self.combo_pivo_coluna.setCurrentIndex(max(self.combo_pivo_coluna.findData(p.get("coluna")),0)); self.combo_pivo_valor.setCurrentIndex(max(self.combo_pivo_valor.findData(p.get("valor")),0)); self.combo_pivo_agg.setCurrentIndex(max(self.combo_pivo_agg.findData(p.get("agregacao")),0)); self.nome_config.setText(self.combo_configs.currentText())
+        if persistir:self._lembrar_config(self.combo_configs.currentText())
 
     def _gerar_previa(self):
         try:

@@ -11,6 +11,7 @@ simulação" (simulacao_talhao_idade é recriada do zero, DROP + CREATE, a cada
 execução).
 """
 import json
+from collections import OrderedDict
 import sqlite3
 import time
 from typing import Dict, List, Optional, Tuple
@@ -101,7 +102,7 @@ _LIMIAR_TEMPO_RELATADO = 1.0
 
 _TIPOS_COM_DEPENDENCIA = (
     "modelo", "saida", "calculo", "distribuicao", "acumulado", "receita_sortimento",
-    "rendimento_sortimento", "vpl_sortimento", "vet_sortimento", "afilamento",
+    "rendimento_sortimento", "vpl_sortimento", "vet_sortimento", "afilamento", "tabuas",
     "recuperacao_weibull", "custo_colheita", "custo_formacao",
 )
 
@@ -456,7 +457,11 @@ def _resolver_valor_saida(no_origem: Optional[dict], valor_no, saida_idx: int):
     if no_origem is not None and no_origem.get("tipo") == "afilamento":
         if not isinstance(valor_no, dict):
             return None
-        return valor_no.get("biomassa" if saida_idx == 1 else "aproveitavel")
+        return valor_no.get(("aproveitavel", "biomassa", "modelo_taper")[saida_idx]) if 0 <= saida_idx < 3 else None
+    if no_origem is not None and no_origem.get("tipo") == "tabuas":
+        from .tabuas_grafo import saidas_tabuas
+        saidas = saidas_tabuas(no_origem)
+        return valor_no.get(saidas[saida_idx]['chave']) if isinstance(valor_no, dict) and 0 <= saida_idx < len(saidas) else None
     if no_origem is not None and no_origem.get("tipo") == "recuperacao_weibull":
         if not isinstance(valor_no, dict):
             return None
@@ -560,6 +565,20 @@ def _recuperar_forma_escala(media: pd.Series, cv: pd.Series) -> Tuple[pd.Series,
 _PASSO_ALTURA_AFILAMENTO = 0.1
 
 
+def preparar_modelo_taper(no, variante):
+    from .toragem import validar_configuracao_produtos
+    config = no.get('configuracao_produtos')
+    variaveis = no.get('variaveis', [])
+    if config is None:
+        if len(variaveis) != 3:
+            raise ValueError('Configure as variáveis dummy e os produtos pelo botão direito no nó Taper.')
+        return variaveis, dict(variante['coeficientes'])
+    validar_configuracao_produtos(config, variaveis)
+    produtos = config['produtos']
+    produto = next((p for papel in ('com_casca','sem_casca') for p in produtos if p['papel'] == papel), produtos[0])
+    return config['geometricas'], {**variante['coeficientes'], **produto['valores']}
+
+
 def _perfil_area_seccional(equacao, coeficientes, nomes_variaveis, dap, h_grid, H_grid):
     """Avalia a equação de afilamento (3 "Variáveis (x)" posicionais —
     DAP, h, H, ver ramo "afilamento" de avaliar_grafo) numa grade de
@@ -586,11 +605,45 @@ def _perfil_area_seccional(equacao, coeficientes, nomes_variaveis, dap, h_grid, 
     with np.errstate(all="ignore"):
         d_grid = motor_modelos.avaliar_expressao_array(
             equacao, coeficientes, {nome_dap: dap, nome_h: h_grid, nome_H: H_grid})
+        d_grid = np.broadcast_to(d_grid,np.broadcast_shapes(np.shape(dap),np.shape(h_grid),np.shape(H_grid)))
         g_grid = np.pi / 40000.0 * d_grid ** 2
     return g_grid, d_grid
 
 
-def _calcular_volumes_afilamento(
+# Resultados nas alturas reais, sem interpolação nem arredondamento.
+# Arrays compactos por curva evitam milhões de entradas Python por lote.
+_CACHE_AFILAMENTO_EXATO = OrderedDict()
+
+
+def _calcular_volumes_afilamento(equacao,coeficientes,nomes_variaveis,dap,serie_H,
+                                  comprimento_tora,diametro_minimo_tora):
+    chave=_chave_tabela_afilamento(equacao,coeficientes,nomes_variaveis,dap,comprimento_tora,diametro_minimo_tora)
+    hs=serie_H.to_numpy(dtype=float);validos=~np.isnan(hs)
+    a=np.full(len(hs),np.nan);b=a.copy()
+    if not validos.any():return pd.Series(a,index=serie_H.index),pd.Series(b,index=serie_H.index)
+    candidatos=np.unique(hs[validos])
+    antigos,aa,bb=_CACHE_AFILAMENTO_EXATO.get(chave,(np.array([]),np.array([]),np.array([])))
+    idx=np.searchsorted(antigos,candidatos)
+    conhecidos=np.zeros(len(candidatos),dtype=bool)
+    cabe=idx<len(antigos)
+    conhecidos[cabe]=antigos[idx[cabe]]==candidatos[cabe]
+    novos=candidatos[~conhecidos]
+    if len(novos):
+        av,bi=_calcular_volumes_afilamento_direto(equacao,coeficientes,nomes_variaveis,dap,
+            pd.Series(novos),comprimento_tora,diametro_minimo_tora)
+        alturas=np.concatenate((antigos,novos));ordem=np.argsort(alturas)
+        antigos=alturas[ordem];aa=np.concatenate((aa,av.to_numpy()))[ordem];bb=np.concatenate((bb,bi.to_numpy()))[ordem]
+        # Limite compacto por curva, além do limite de curvas cadastradas.
+        if len(antigos)<=32768:
+            _CACHE_AFILAMENTO_EXATO[chave]=(antigos,aa,bb)
+            _CACHE_AFILAMENTO_EXATO.move_to_end(chave)
+            while len(_CACHE_AFILAMENTO_EXATO)>256:_CACHE_AFILAMENTO_EXATO.popitem(last=False)
+    elif chave in _CACHE_AFILAMENTO_EXATO:_CACHE_AFILAMENTO_EXATO.move_to_end(chave)
+    pos=np.searchsorted(antigos,hs[validos]);a[validos]=aa[pos];b[validos]=bb[pos]
+    return pd.Series(a,index=serie_H.index),pd.Series(b,index=serie_H.index)
+
+
+def _calcular_volumes_afilamento_direto(
     equacao, coeficientes, nomes_variaveis, dap: float, serie_H: pd.Series,
     comprimento_tora: float, diametro_minimo_tora: float,
 ) -> Tuple[pd.Series, pd.Series]:
@@ -705,7 +758,7 @@ def preaquecer_cache_afilamento(
             if no.get("tipo") != "afilamento":
                 continue
             nomes_variaveis = no.get("variaveis", [])
-            if len(nomes_variaveis) != 3:
+            if len(nomes_variaveis) != 3 or no.get("configuracao_produtos"):
                 continue
             for variante in _variantes_do_no(no):
                 for classe in classes_diametricas:
@@ -958,7 +1011,12 @@ def avaliar_grafo(
     }
 
     def _conexao_entrada(no_destino, entrada_idx):
-        return conexoes_por_entrada.get((no_destino, entrada_idx))
+        c = conexoes_por_entrada.get((no_destino, entrada_idx))
+        if (c and nos.get(c['origem'],{}).get('tipo') == 'afilamento'
+                and c.get('saida_idx',0) == 2
+                and (nos[no_destino]['tipo'] != 'tabuas' or entrada_idx != 0)):
+            return None  # O descritor do modelo não é um volume para operações numéricas.
+        return c
 
     # Linhas fora dos eventos de manejo configurados em CADA nó (padrão:
     # qualquer evento preenchido), ou com intensidade 0% num evento que
@@ -1248,6 +1306,10 @@ def avaliar_grafo(
                         continue
                     if mascara is not None:
                         resultado = resultado.where(mascara)
+                    if np.isinf(resultado.to_numpy(dtype=float)).any():
+                        erros.append(f"\"{no['rotulo']}\": a equação {variante['equacao']!r} gerou infinito. "
+                                     "Confira denominadores iguais a zero e valores fora do domínio nas entradas do modelo.")
+                        continue
                     resultado_total = resultado_total.where(resultado_total.notna(), resultado)
                     algum_ok = True
                 if algum_ok:
@@ -1291,6 +1353,9 @@ def avaliar_grafo(
                         preencher = np.isnan(resultado_matriz)
                         if mascara is not None:
                             preencher &= mascara.to_numpy(dtype=bool)[:, None]
+                        if np.isinf(bruto[preencher]).any():
+                            raise ValueError(f"A equação {variante['equacao']!r} gerou infinito. "
+                                             "Confira denominadores iguais a zero e valores fora do domínio nas entradas do modelo.")
                         resultado_matriz[preencher] = bruto[preencher]
 
                     resultado_por_classe = {
@@ -1928,6 +1993,20 @@ def avaliar_grafo(
                     "diamétrica (ex: um Modelo hipsométrico ligado em Classe Diamétrica)")
                 continue
 
+            try:
+                variantes_taper = _variantes_do_no(no)
+                if not variantes_taper:
+                    raise ValueError('Nenhuma variante de modelo cadastrada.')
+                nomes_variaveis, _ = preparar_modelo_taper(no, variantes_taper[0])
+            except ValueError as e:
+                erros.append(f"{no['rotulo']}: {e}")
+                continue
+            valores[no_id] = {'modelo_taper': {'tipo': 'modelo_taper', 'no': no, 'alturas': valor_H}}
+            fios = [c for c in conexoes if c['origem'] == no_id]
+            if (any(c.get('saida_idx',0) == 2 for c in fios)
+                    and not any(c.get('saida_idx',0) < 2 for c in fios)
+                    and not no.get('nome_saida_aproveitavel') and not no.get('nome_saida_biomassa')):
+                continue
             if (dimensoes_tora is None or dimensoes_tora.get("comprimento_tora") is None
                     or dimensoes_tora.get("diametro_minimo_tora") is None):
                 erros.append(
@@ -1940,13 +2019,6 @@ def avaliar_grafo(
                 erros.append(f"\"{no['rotulo']}\": o comprimento da tora precisa ser maior que zero")
                 continue
             usar_tabela_afilamento = bool(dimensoes_tora.get("usar_tabela_afilamento"))
-
-            nomes_variaveis = no.get("variaveis", [])
-            if len(nomes_variaveis) != 3:
-                erros.append(
-                    f"\"{no['rotulo']}\": o modelo de afilamento precisa ter exatamente 3 "
-                    "variáveis cadastradas (DAP, h, H, nessa ordem) — confira em Modelos")
-                continue
 
             variantes = _variantes_do_no(no)
             if not variantes:
@@ -1989,24 +2061,46 @@ def avaliar_grafo(
                             linhas_pendentes &= mascara
                         if not linhas_pendentes.any():
                             continue
+                        nomes_variaveis, coeficientes_taper = preparar_modelo_taper(no, variante)
                         if usar_tabela_afilamento:
                             tabela_aproveitavel, tabela_biomassa = _obter_tabela_afilamento(
-                                variante["equacao"], variante["coeficientes"], nomes_variaveis, dap,
+                                variante["equacao"], coeficientes_taper, nomes_variaveis, dap,
                                 comprimento_tora, diametro_minimo_tora)
                             aprov, bioma = _calcular_volumes_afilamento_tabela(
                                 tabela_aproveitavel, tabela_biomassa, serie_H[linhas_pendentes])
                         else:
                             aprov, bioma = _calcular_volumes_afilamento(
-                                variante["equacao"], variante["coeficientes"], nomes_variaveis, dap,
+                                variante["equacao"], coeficientes_taper, nomes_variaveis, dap,
                                 serie_H[linhas_pendentes], comprimento_tora, diametro_minimo_tora)
                         aproveitavel_classe.loc[linhas_pendentes] = aprov
                         biomassa_classe.loc[linhas_pendentes] = bioma
                     resultado_aproveitavel[float(classe)] = aproveitavel_classe
                     resultado_biomassa[float(classe)] = biomassa_classe
-                valores[no_id] = {
-                    "aproveitavel": resultado_aproveitavel, "biomassa": resultado_biomassa}
+                valores[no_id].update({
+                    "aproveitavel": resultado_aproveitavel, "biomassa": resultado_biomassa})
             except ValueError as e:
                 erros.append(f"\"{no['rotulo']}\": {e}")
+
+        elif no['tipo'] == 'tabuas':
+            from .tabuas_grafo import avaliar_tabuas
+            conexao = _conexao_entrada(no_id, 0)
+            origem = nos.get(conexao['origem']) if conexao else None
+            if not origem or origem.get('tipo') != 'afilamento' or conexao.get('saida_idx',0) != 2:
+                erros.append(f"{no['rotulo']}: ligue a saída Modelo do nó Taper à entrada Taper.")
+                continue
+            contexto = _resolver_valor_saida(origem, valores.get(conexao['origem']), 2)
+            if not contexto:
+                erros.append(f"{no['rotulo']}: modelo de taper ainda não calculado.")
+                continue
+            try:
+                variantes = _mascaras_variantes(df, _variantes_do_no(origem), origem['rotulo'], erros)
+                entradas=[]
+                for indice in (1,2):
+                    c=_conexao_entrada(no_id,indice)
+                    entradas.append(_resolver_valor_saida(nos.get(c['origem']),valores.get(c['origem']),c.get('saida_idx',0)) if c else None)
+                valores[no_id] = avaliar_tabuas(df, no, contexto, variantes, dimensoes_tora or {}, *entradas)
+            except ValueError as e:
+                erros.append(f"{no['rotulo']}: {e}")
 
         # Aplica a máscara de linhas de formação (ver mascara_linhas_formacao
         # acima) no valor que ACABOU de ser calculado nesta iteração —
@@ -2063,6 +2157,12 @@ def saidas_nomeadas(nos: dict, valores: dict) -> Dict[str, pd.Series]:
     saidas = {}
     for no_id, no in nos.items():
         if no_id not in valores or not no.get("gravar", True):
+            continue
+        if no['tipo'] == 'tabuas':
+            from .tabuas_grafo import saidas_tabuas
+            for saida in saidas_tabuas(no):
+                for diametro, serie in valores[no_id].get(saida['chave'], {}).items():
+                    saidas[f"{saida['nome_saida']}_{diametro:g}"] = serie
             continue
         if no["tipo"] == "afilamento":
             valor = valores[no_id]
@@ -2246,9 +2346,11 @@ def obter_dimensoes_tora(conn: sqlite3.Connection) -> Optional[Dict]:
     if linha is None:
         return None
     comprimento_tora, diametro_minimo_tora, usar_tabela_afilamento = linha
+    from .classes_tabuas import listar, carregar_classificacao_cerne
     return {
         "comprimento_tora": comprimento_tora, "diametro_minimo_tora": diametro_minimo_tora,
         "usar_tabela_afilamento": bool(usar_tabela_afilamento),
+        "classes_tabuas": listar(conn), "classificacao_cerne": carregar_classificacao_cerne(conn),
     }
 
 

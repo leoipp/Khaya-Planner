@@ -2,6 +2,10 @@
 import sys
 import warnings
 
+from app.core.temporarios import configurar_temporarios
+
+configurar_temporarios()
+
 from PySide6.QtWidgets import QApplication
 
 from app.core import preferencias
@@ -28,6 +32,8 @@ def main():
     # não é uma troca de tema de verdade — evita regravar o arquivo à toa
     # a cada boot do app.
     gerenciador_tema.aplicar(preferencias.obter_tema(), salvar=False)
+    from app.widgets.combos_legiveis import instalar
+    instalar(app)
     app.setStyleSheet(qss.gerar(gerenciador_tema.modo_atual()))
     gerenciador_tema.themeChanged.connect(lambda modo: app.setStyleSheet(qss.gerar(modo)))
 

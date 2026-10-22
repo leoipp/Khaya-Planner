@@ -3,6 +3,7 @@ import os
 import time
 from contextlib import closing
 import shutil
+import sys
 import sqlite3
 import tempfile
 import unittest
@@ -78,6 +79,53 @@ class TestPlanejamento(unittest.TestCase):
         self.assertIn('adicional_0:', texto)
         self.assertIn('alpha <= 5', texto)
 
+    def test_ano_sem_volume_exige_alpha_de_cem_porcento(self):
+        df, grupos, vpl, volumes = p.preparar(self.banco, self.cfg)
+        volumes[2028][:] = 0
+        with self.assertRaisesRegex(ValueError, '2028.*') as erro:
+            p.validar_faixa_demanda({**self.cfg, 'alpha_max': .05}, grupos, volumes)
+        self.assertIn('100.0000%', str(erro.exception))
+        self.assertIn('500%', str(erro.exception))
+        p.validar_faixa_demanda({**self.cfg, 'alpha_max': 1.}, grupos, volumes)
+        p.validar_faixa_demanda(self.cfg, grupos, volumes)
+
+    def test_verificacao_demanda_ignora_anos_de_transicao(self):
+        _, grupos, _, volumes = p.preparar(self.banco, self.cfg)
+        # O volume zero de 2026 não deve exigir relaxação.
+        p.validar_faixa_demanda({**self.cfg, 'alpha_max': .2}, grupos, volumes)
+
+    def test_log_entregue_durante_execucao(self):
+        marcador = Path(self.tmp.name, 'liberar')
+        mensagens = []
+        def progresso(linha):
+            mensagens.append(linha)
+            marcador.touch()
+        script = ("import pathlib,time; print('iniciou', flush=True); "
+                  f"p=pathlib.Path({str(marcador)!r}); "
+                  "exec('while not p.exists(): time.sleep(.01)'); print('terminou', flush=True)")
+        codigo, log = p._executar_com_log([sys.executable, '-c', script], self.tmp.name, 5, progresso)
+        self.assertEqual(codigo, 0)
+        self.assertEqual(mensagens, ['iniciou', 'terminou'])
+        self.assertIn('terminou', log)
+
+    @unittest.skipUnless(shutil.which('cplex'), 'CPLEX não instalado')
+    def test_alpha_relaxa_demanda_e_vpl_preserva_faixa(self):
+        # Demanda exata é impossível: a menor relaxação é 20%.
+        # O cenário de maior VPL só pode ser escolhido após preservar essa faixa.
+        self.df['2027'] = [40., 40., 40., 40.]
+        self.df['2028'] = [120., 40., 40., 40.]
+        self.gravar()
+        resultado = p.otimizar(self.banco, shutil.which('cplex'), self.cfg)
+        resumo = resultado['resumo']
+        self.assertAlmostEqual(resumo['ALPHA_ENCONTRADO'], .2)
+        self.assertAlmostEqual(resumo['VPL_FINAL'], 60.)
+        self.assertAlmostEqual(resumo['VOLUME_MIN'], 79.999)
+        self.assertAlmostEqual(resumo['VOLUME_MAX'], 120.001)
+        self.assertIn('MIP start', resultado['etapas'][1]['LOG'])
+        for ano in resultado['producao'][1:]:
+            self.assertGreaterEqual(ano['VOLUME_TAPER'], ano['LIMITE_MIN'])
+            self.assertLessEqual(ano['VOLUME_TAPER'], ano['LIMITE_MAX'])
+
     @unittest.skipUnless(shutil.which('cplex'), 'CPLEX não instalado')
     def test_cplex_real_duas_etapas_e_publicacao(self):
         resultado = p.otimizar(self.banco, shutil.which('cplex'), self.cfg)
@@ -128,6 +176,7 @@ class TestPlanejamento(unittest.TestCase):
         janela.travar_navegacao = estados.append
         tela = TelaPlanejamento()
         janela.setCentralWidget(tela)
+        tela.modelo.setCurrentIndex(tela.modelo.findData('legado'))
         tela._carregar_banco(self.banco)
         for k, widget in tela.campos.items():
             valor = self.cfg[k] * (100 if k in ('alpha_max', 'folga', 'tolerancia', 'gap_alpha', 'gap_vpl') else 1)

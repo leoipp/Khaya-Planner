@@ -414,9 +414,11 @@ def gerar(modo):
         color: {c["fg"]};
         border: 1px solid {c["borda"]};
         border-radius: 6px;
-        padding: 6px 28px 6px {espaco_sm}px;
+        padding: 3px 28px 3px {espaco_sm}px;
+        min-height: 24px;
         {_fonte("entrada")}
     }}
+    QComboBox QAbstractItemView::item {{ min-height: 28px; padding: 3px 8px; }}
     QComboBox:focus {{
         border: 1px solid {c["accent"]};
     }}

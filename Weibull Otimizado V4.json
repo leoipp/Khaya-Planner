@@ -1,0 +1,2483 @@
+{
+  "nos": {
+    "2": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 100.0,
+      "rotulo": "Idade_anos",
+      "coluna": "Idade_anos"
+    },
+    "3": {
+      "tipo": "saida",
+      "x": 880.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "DAP MED ESTIMADO 01",
+      "gravar": false
+    },
+    "7": {
+      "tipo": "saida",
+      "x": 1270.0,
+      "y": 297.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "DAP MED ESTIMADO 02",
+      "gravar": false
+    },
+    "8": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 784.0,
+      "rotulo": "dap_med_atual",
+      "coluna": "dap_med_atual"
+    },
+    "13": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 955.0,
+      "rotulo": "idade_simulada",
+      "coluna": "idade_simulada"
+    },
+    "14": {
+      "tipo": "saida",
+      "x": 880.0,
+      "y": 665.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "DAP MIN ESTIMADO 01",
+      "gravar": false
+    },
+    "15": {
+      "tipo": "saida",
+      "x": 1270.0,
+      "y": 743.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+",
+          "inverso": true
+        },
+        {
+          "operador": "^"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "DAP MIN ESTIMADO 02",
+      "gravar": false
+    },
+    "16": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 1639.0,
+      "rotulo": "dap_min_atual",
+      "coluna": "dap_min_atual"
+    },
+    "46": {
+      "tipo": "modelo",
+      "x": 490.0,
+      "y": 1282.0,
+      "rotulo": "Ht",
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "nome_saida": "",
+      "gravar": false,
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*exp(b/(x1*x2))",
+          "coeficientes": {
+            "a": 21.4750548956245,
+            "b": -661.396832770601
+          }
+        }
+      ],
+      "modelo_ids": [
+        3
+      ],
+      "nome": "Ht"
+    },
+    "47": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 2152.0,
+      "rotulo": "Idade_meses",
+      "coluna": "Idade_meses"
+    },
+    "48": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 2323.0,
+      "rotulo": "DAP_cm",
+      "coluna": "DAP_cm"
+    },
+    "49": {
+      "tipo": "modelo",
+      "x": 880.0,
+      "y": 1059.0,
+      "rotulo": "Ht",
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "nome_saida": "",
+      "gravar": false,
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*exp(b/(x1*x2))",
+          "coeficientes": {
+            "a": 21.4750548956245,
+            "b": -661.396832770601
+          }
+        }
+      ],
+      "modelo_ids": [
+        3
+      ],
+      "nome": "Ht"
+    },
+    "51": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 2494.0,
+      "rotulo": "idade_simulada",
+      "coluna": "idade_simulada"
+    },
+    "52": {
+      "tipo": "calculo",
+      "x": 490.0,
+      "y": 1479.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "*",
+          "valor": 12.0
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "53": {
+      "tipo": "classe_diametrica",
+      "x": 100.0,
+      "y": 2665.0,
+      "rotulo": "Classe Diamétrica"
+    },
+    "54": {
+      "tipo": "saida",
+      "x": 880.0,
+      "y": 862.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "HT ESTIMADO 01",
+      "gravar": false
+    },
+    "55": {
+      "tipo": "saida",
+      "x": 1270.0,
+      "y": 992.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "HT ESTIMADO 02",
+      "gravar": false
+    },
+    "56": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 2836.0,
+      "rotulo": "ht_atual",
+      "coluna": "ht_atual"
+    },
+    "57": {
+      "tipo": "modelo",
+      "x": 1660.0,
+      "y": 598.0,
+      "rotulo": "VTCC — Espécie (2 estratos)",
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "nome_saida": "",
+      "gravar": false,
+      "variantes": [
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Grandifoliola",
+          "equacao": "exp(a+b*LN(x1)+c*LN(x2)+d*(0/x1))",
+          "coeficientes": {
+            "a": -9.3617,
+            "b": 1.6593,
+            "c": 1.0516,
+            "d": -2.2811
+          }
+        },
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Senegalensis",
+          "equacao": "exp(a+b*LN(x1)+c*LN(x2)+d*(0/x1))",
+          "coeficientes": {
+            "a": -9.1842,
+            "b": 1.5893,
+            "c": 1.0432,
+            "d": -3.7472
+          }
+        }
+      ],
+      "modelo_ids": [
+        6,
+        7
+      ],
+      "nome": "VTCC"
+    },
+    "58": {
+      "tipo": "classe_diametrica",
+      "x": 100.0,
+      "y": 1981.0,
+      "rotulo": "Classe Diamétrica"
+    },
+    "59": {
+      "tipo": "saida",
+      "x": 4000.0,
+      "y": 598.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "*"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "VTCC SIMULADO",
+      "gravar": true
+    },
+    "60": {
+      "tipo": "distribuicao",
+      "x": 3610.0,
+      "y": 100.0,
+      "rotulo": "Distribuição Diamétrica",
+      "variaveis": [
+        "forma",
+        "escala"
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "61": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 1810.0,
+      "rotulo": "fustes_atual",
+      "coluna": "fustes_atual"
+    },
+    "62": {
+      "tipo": "modelo",
+      "x": 1660.0,
+      "y": 795.0,
+      "nome": "VTCC",
+      "rotulo": "VTCC — Espécie (2 estratos)",
+      "modelo_ids": [
+        6,
+        7
+      ],
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Grandifoliola",
+          "equacao": "exp(a+b*LN(x1)+c*LN(x2)+d*(0/x1))",
+          "coeficientes": {
+            "a": -9.3617,
+            "b": 1.6593,
+            "c": 1.0516,
+            "d": -2.2811
+          }
+        },
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Senegalensis",
+          "equacao": "exp(a+b*LN(x1)+c*LN(x2)+d*(0/x1))",
+          "coeficientes": {
+            "a": -9.1842,
+            "b": 1.5893,
+            "c": 1.0432,
+            "d": -3.7472
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "63": {
+      "tipo": "saida",
+      "x": 4000.0,
+      "y": 847.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "*"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "VTCC SIMULADO DESBASTE",
+      "gravar": false
+    },
+    "64": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 3178.0,
+      "rotulo": "remocao_absoluta",
+      "coluna": "remocao_absoluta"
+    },
+    "69": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 3349.0,
+      "rotulo": "Idade_meses",
+      "coluna": "Idade_meses"
+    },
+    "70": {
+      "tipo": "saida",
+      "x": 880.0,
+      "y": 1256.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "MNP ESTIMADO 01",
+      "gravar": false
+    },
+    "72": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 3520.0,
+      "rotulo": "idade_simulada",
+      "coluna": "idade_simulada"
+    },
+    "73": {
+      "tipo": "calculo",
+      "x": 490.0,
+      "y": 1821.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "*",
+          "valor": 12.0
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "74": {
+      "tipo": "saida",
+      "x": 1270.0,
+      "y": 1241.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "MNP ESTIMADO 02",
+      "gravar": true
+    },
+    "75": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 3691.0,
+      "rotulo": "vtcc_atual",
+      "coluna": "vtcc_atual"
+    },
+    "76": {
+      "tipo": "modelo",
+      "x": 490.0,
+      "y": 1650.0,
+      "nome": "MNP",
+      "rotulo": "MNP — Espécie (2 estratos)",
+      "modelo_ids": [
+        8,
+        9
+      ],
+      "variaveis": [
+        "x"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Senegalensis",
+          "equacao": "a*exp(b/x)",
+          "coeficientes": {
+            "a": 193.36299,
+            "b": -103.183665
+          }
+        },
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Grandifoliola",
+          "equacao": "a/(1+b*exp(-c*x))",
+          "coeficientes": {
+            "a": 171.0,
+            "b": 60.0,
+            "c": 0.0467
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "77": {
+      "tipo": "modelo",
+      "x": 880.0,
+      "y": 1453.0,
+      "nome": "MNP",
+      "rotulo": "MNP — Espécie (2 estratos)",
+      "modelo_ids": [
+        8,
+        9
+      ],
+      "variaveis": [
+        "x"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Senegalensis",
+          "equacao": "a*exp(b/x)",
+          "coeficientes": {
+            "a": 193.36299,
+            "b": -103.183665
+          }
+        },
+        {
+          "estrato_coluna": "Espécie",
+          "estrato": "Grandifoliola",
+          "equacao": "a/(1+b*exp(-c*x))",
+          "coeficientes": {
+            "a": 171.0,
+            "b": 60.0,
+            "c": 0.0467
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "79": {
+      "tipo": "saida",
+      "x": 4780.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        },
+        {
+          "operador": "*"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "MDD REMANESCENTE CORRIGIDO",
+      "gravar": true,
+      "eventos_manejo": [
+        "Corte Raso"
+      ]
+    },
+    "92": {
+      "tipo": "calculo",
+      "x": 4390.0,
+      "y": 494.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "93": {
+      "tipo": "saida",
+      "x": 4780.0,
+      "y": 375.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        },
+        {
+          "operador": "*"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "MDD DESBASTE CORRIGIDO",
+      "gravar": false,
+      "eventos_manejo": [
+        "Raleio",
+        "1º Desbaste",
+        "2º Desbaste"
+      ]
+    },
+    "106": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 3007.0,
+      "rotulo": "Area_ha",
+      "coluna": "Area_ha"
+    },
+    "107": {
+      "tipo": "calculo",
+      "x": 4390.0,
+      "y": 323.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "SOMATORIO VOL",
+      "gravar": true
+    },
+    "112": {
+      "tipo": "saida",
+      "x": 5170.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "VOLUME FINAL",
+      "gravar": true
+    },
+    "120": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 271.0,
+      "rotulo": "DAP_min_cm",
+      "coluna": "DAP_min_cm"
+    },
+    "121": {
+      "tipo": "saida",
+      "x": 1270.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "CV DAP ESTIMADO 01",
+      "gravar": false
+    },
+    "122": {
+      "tipo": "saida",
+      "x": 2440.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "CV DAP ESTIMADO 02",
+      "gravar": false
+    },
+    "123": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 1468.0,
+      "rotulo": "cv_dap_atual",
+      "coluna": "cv_dap_atual"
+    },
+    "124": {
+      "tipo": "recuperacao_weibull",
+      "x": 2830.0,
+      "y": 100.0,
+      "rotulo": "Recuperação Weibull",
+      "variaveis": [
+        "media",
+        "cv"
+      ],
+      "nome_saida_forma": "",
+      "nome_saida_escala": "",
+      "gravar": false
+    },
+    "125": {
+      "tipo": "saida",
+      "x": 3220.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "Shape",
+      "gravar": true
+    },
+    "126": {
+      "tipo": "saida",
+      "x": 3220.0,
+      "y": 297.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "Scale",
+      "gravar": true
+    },
+    "129": {
+      "tipo": "saida",
+      "x": 490.0,
+      "y": 297.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        }
+      ],
+      "nome_saida": "d",
+      "gravar": false
+    },
+    "130": {
+      "tipo": "saida",
+      "x": 1660.0,
+      "y": 375.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        }
+      ],
+      "nome_saida": "d2",
+      "gravar": false
+    },
+    "135": {
+      "tipo": "modelo",
+      "x": 2050.0,
+      "y": 100.0,
+      "nome": "CV DAP Logistico",
+      "rotulo": "CV DAP Logistico",
+      "modelo_ids": [
+        15
+      ],
+      "variaveis": [
+        "x"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a/(1 + b*exp(-c*x))",
+          "coeficientes": {
+            "a": 4.106495335270053e-05,
+            "b": -0.9998881235486323,
+            "c": 8.438605873095001e-05
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "136": {
+      "tipo": "modelo",
+      "x": 880.0,
+      "y": 297.0,
+      "nome": "CV DAP Logistico",
+      "rotulo": "CV DAP Logistico",
+      "modelo_ids": [
+        15
+      ],
+      "variaveis": [
+        "x"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a/(1 + b*exp(-c*x))",
+          "coeficientes": {
+            "a": 4.106495335270053e-05,
+            "b": -0.9998881235486323,
+            "c": 8.438605873095001e-05
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "139": {
+      "tipo": "modelo",
+      "x": 490.0,
+      "y": 717.0,
+      "nome": "DAP med Alometrico",
+      "rotulo": "DAP med Alometrico",
+      "modelo_ids": [
+        16
+      ],
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*x1**b*x2**c",
+          "coeficientes": {
+            "a": 11.36806,
+            "b": 0.64453,
+            "c": -0.13937
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "140": {
+      "tipo": "modelo",
+      "x": 490.0,
+      "y": 100.0,
+      "nome": "DAP med Alometrico",
+      "rotulo": "DAP med Alometrico",
+      "modelo_ids": [
+        16
+      ],
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*x1**b*x2**c",
+          "coeficientes": {
+            "a": 11.36806,
+            "b": 0.64453,
+            "c": -0.13937
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "142": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 442.0,
+      "rotulo": "Fustes_ha",
+      "coluna": "Fustes_ha"
+    },
+    "143": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 613.0,
+      "rotulo": "fustes_atual",
+      "coluna": "fustes_atual"
+    },
+    "144": {
+      "tipo": "modelo",
+      "x": 490.0,
+      "y": 914.0,
+      "nome": "DAP min Alometrico",
+      "rotulo": "DAP min Alometrico",
+      "modelo_ids": [
+        17
+      ],
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*x1**b*x2**c",
+          "coeficientes": {
+            "a": 23.01751848514437,
+            "b": 0.9187480802367038,
+            "c": -0.4262608476070562
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "145": {
+      "tipo": "modelo",
+      "x": 490.0,
+      "y": 520.0,
+      "nome": "DAP min Alometrico",
+      "rotulo": "DAP min Alometrico",
+      "modelo_ids": [
+        17
+      ],
+      "variaveis": [
+        "x1",
+        "x2"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*x1**b*x2**c",
+          "coeficientes": {
+            "a": 23.01751848514437,
+            "b": 0.9187480802367038,
+            "c": -0.4262608476070562
+          }
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "146": {
+      "tipo": "afilamento",
+      "x": 1660.0,
+      "y": 992.0,
+      "nome": "Taper Multiproduto",
+      "rotulo": "Taper: perfil multiproduto",
+      "modelo_ids": [
+        19
+      ],
+      "variaveis": [
+        "x1",
+        "x2",
+        "x3",
+        "x4",
+        "x5"
+      ],
+      "variantes": [
+        {
+          "estrato_coluna": null,
+          "estrato": null,
+          "equacao": "a*x1*(1+b*ln(1-c*(x2/x3)^d))*exp(-(e*x4+f*x5)/x1)",
+          "coeficientes": {
+            "a": 2.596021,
+            "b": 0.157843,
+            "c": 0.998216,
+            "d": 0.007721,
+            "e": 1.421417,
+            "f": 9.45757
+          }
+        }
+      ],
+      "nome_saida_aproveitavel": "",
+      "nome_saida_biomassa": "",
+      "gravar": false,
+      "configuracao_produtos": {
+        "geometricas": [
+          "x1",
+          "x2",
+          "x3"
+        ],
+        "dummies": [
+          "x4",
+          "x5"
+        ],
+        "produtos": [
+          {
+            "nome": "Com casca",
+            "papel": "com_casca",
+            "valores": {
+              "x4": 0,
+              "x5": 0
+            }
+          },
+          {
+            "nome": "Sem casca",
+            "papel": "sem_casca",
+            "valores": {
+              "x4": 1,
+              "x5": 0
+            }
+          },
+          {
+            "nome": "Cerne",
+            "papel": "cerne",
+            "valores": {
+              "x4": 1,
+              "x5": 1
+            }
+          }
+        ]
+      }
+    },
+    "147": {
+      "tipo": "saida",
+      "x": 2050.0,
+      "y": 271.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "Processo",
+      "gravar": false
+    },
+    "148": {
+      "tipo": "saida",
+      "x": 2050.0,
+      "y": 468.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "Biomassa",
+      "gravar": false
+    },
+    "149": {
+      "tipo": "saida",
+      "x": 2440.0,
+      "y": 349.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "Vol Total",
+      "gravar": false
+    },
+    "150": {
+      "tipo": "saida",
+      "x": 2830.0,
+      "y": 297.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "/"
+        }
+      ],
+      "nome_saida": "percent",
+      "gravar": false
+    },
+    "151": {
+      "tipo": "saida",
+      "x": 5560.0,
+      "y": 613.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "nome_saida": "Volume Final Taper",
+      "gravar": false
+    },
+    "155": {
+      "tipo": "saida",
+      "x": 5950.0,
+      "y": 1070.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "-"
+        }
+      ],
+      "nome_saida": "Volume Biomassa",
+      "gravar": true
+    },
+    "157": {
+      "tipo": "receita_sortimento",
+      "x": 5950.0,
+      "y": 1293.0,
+      "rotulo": "Receita Total",
+      "nome_saida": "",
+      "gravar": false,
+      "eventos_manejo": [],
+      "tipo_preco": "pe"
+    },
+    "164": {
+      "tipo": "saida",
+      "x": 6340.0,
+      "y": 2323.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "RT",
+      "gravar": false
+    },
+    "166": {
+      "tipo": "custo_colheita",
+      "x": 5560.0,
+      "y": 442.0,
+      "rotulo": "Custo de Colheita",
+      "custo_colheita_id": 5,
+      "custo_colheita_nome": "TMO",
+      "nome_saida": "",
+      "gravar": true,
+      "eventos_manejo": [
+        "Raleio",
+        "1º Desbaste",
+        "2º Desbaste",
+        "Corte Raso"
+      ]
+    },
+    "167": {
+      "tipo": "saida",
+      "x": 5950.0,
+      "y": 873.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "CCF Baldeio",
+      "gravar": true
+    },
+    "168": {
+      "tipo": "calculo",
+      "x": 6340.0,
+      "y": 2152.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "*",
+          "valor": 50.0
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "169": {
+      "tipo": "saida",
+      "x": 6730.0,
+      "y": 349.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "RT BIOMASSA",
+      "gravar": false
+    },
+    "171": {
+      "tipo": "saida",
+      "x": 5950.0,
+      "y": 676.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "CCF Colheita",
+      "gravar": true
+    },
+    "172": {
+      "tipo": "custo_colheita",
+      "x": 5560.0,
+      "y": 100.0,
+      "rotulo": "Custo de Colheita",
+      "custo_colheita_id": 1,
+      "custo_colheita_nome": "Motosserra",
+      "nome_saida": "",
+      "gravar": true,
+      "eventos_manejo": [
+        "Raleio"
+      ]
+    },
+    "173": {
+      "tipo": "saida",
+      "x": 5950.0,
+      "y": 479.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "CCF Colheita Raleio",
+      "gravar": true
+    },
+    "175": {
+      "tipo": "saida",
+      "x": 7120.0,
+      "y": 297.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "RT TOTAL",
+      "gravar": false
+    },
+    "176": {
+      "tipo": "custo_colheita",
+      "x": 5560.0,
+      "y": 271.0,
+      "rotulo": "Custo de Colheita",
+      "custo_colheita_id": 2,
+      "custo_colheita_nome": "Harvester",
+      "nome_saida": "",
+      "gravar": true,
+      "eventos_manejo": [
+        "1º Desbaste",
+        "2º Desbaste",
+        "Corte Raso"
+      ]
+    },
+    "177": {
+      "tipo": "custo_formacao",
+      "x": 490.0,
+      "y": 1111.0,
+      "rotulo": "Custo de Formação",
+      "nome_saida": "custo_formacao",
+      "gravar": true,
+      "excluir_outras_contas": true
+    },
+    "179": {
+      "tipo": "vpl_sortimento",
+      "x": 880.0,
+      "y": 468.0,
+      "rotulo": "VPL",
+      "variaveis": [
+        "rt",
+        "periodo"
+      ],
+      "nome_saida": "",
+      "gravar": false,
+      "eventos_manejo": []
+    },
+    "180": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 1297.0,
+      "rotulo": "idade_simulada",
+      "coluna": "idade_simulada"
+    },
+    "181": {
+      "tipo": "saida",
+      "x": 1270.0,
+      "y": 546.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "CCF (VPL)",
+      "gravar": true
+    },
+    "182": {
+      "tipo": "vpl_sortimento",
+      "x": 7900.0,
+      "y": 100.0,
+      "rotulo": "VPL",
+      "variaveis": [
+        "rt",
+        "periodo"
+      ],
+      "nome_saida": "",
+      "gravar": true,
+      "eventos_manejo": [
+        "Raleio",
+        "1º Desbaste",
+        "2º Desbaste",
+        "Corte Raso"
+      ]
+    },
+    "183": {
+      "tipo": "vet_sortimento",
+      "x": 8680.0,
+      "y": 100.0,
+      "rotulo": "VET",
+      "nome_saida": "",
+      "gravar": false,
+      "eventos_manejo": []
+    },
+    "184": {
+      "tipo": "saida",
+      "x": 9070.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "VET",
+      "gravar": true
+    },
+    "185": {
+      "tipo": "calculo",
+      "x": 7510.0,
+      "y": 323.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "RT",
+      "gravar": true
+    },
+    "186": {
+      "tipo": "calculo",
+      "x": 6340.0,
+      "y": 1639.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "187": {
+      "tipo": "calculo",
+      "x": 6340.0,
+      "y": 1810.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "188": {
+      "tipo": "calculo",
+      "x": 6340.0,
+      "y": 1981.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "",
+      "gravar": false
+    },
+    "189": {
+      "tipo": "saida",
+      "x": 6730.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "CCF Col/Bald",
+      "gravar": true
+    },
+    "190": {
+      "tipo": "vpl_sortimento",
+      "x": 7120.0,
+      "y": 100.0,
+      "rotulo": "VPL",
+      "variaveis": [
+        "rt",
+        "periodo"
+      ],
+      "nome_saida": "",
+      "gravar": false,
+      "eventos_manejo": []
+    },
+    "191": {
+      "tipo": "saida",
+      "x": 7510.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "VPL (DESPESAS)",
+      "gravar": true
+    },
+    "192": {
+      "tipo": "saida",
+      "x": 8290.0,
+      "y": 100.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "-"
+        }
+      ],
+      "nome_saida": "VPL RECEITA",
+      "gravar": true
+    },
+    "197": {
+      "tipo": "coluna",
+      "x": 100.0,
+      "y": 1126.0,
+      "rotulo": "Area_ha",
+      "coluna": "Area_ha"
+    },
+    "198": {
+      "tipo": "saida",
+      "x": 8290.0,
+      "y": 323.0,
+      "rotulo": "Saída",
+      "entradas": [
+        {
+          "operador": "+"
+        }
+      ],
+      "nome_saida": "vpl money",
+      "gravar": true
+    },
+    "199": {
+      "tipo": "calculo",
+      "x": 5950.0,
+      "y": 1464.0,
+      "rotulo": "Cálculo",
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "VOLUME TOTAL TAPER",
+      "gravar": true
+    },
+    "201": {
+      "tipo": "saida",
+      "rotulo": "Árvores corte por diâmetro",
+      "nome_saida": "Árvores corte por diâmetro",
+      "gravar": false,
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "*"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "x": 4000.0,
+      "y": 100.0,
+      "eventos_manejo": [
+        "Corte Raso"
+      ]
+    },
+    "202": {
+      "tipo": "saida",
+      "rotulo": "Árvores desbaste por diâmetro",
+      "nome_saida": "Árvores desbaste por diâmetro",
+      "gravar": false,
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "*"
+        },
+        {
+          "operador": "*"
+        }
+      ],
+      "x": 4000.0,
+      "y": 349.0,
+      "eventos_manejo": [
+        "Raleio",
+        "1º Desbaste",
+        "2º Desbaste"
+      ]
+    },
+    "203": {
+      "tipo": "saida",
+      "rotulo": "Árvores colhidas por diâmetro",
+      "nome_saida": "Árvores colhidas por diâmetro",
+      "gravar": false,
+      "entradas": [
+        {
+          "operador": "+"
+        },
+        {
+          "operador": "+"
+        }
+      ],
+      "x": 4390.0,
+      "y": 100.0
+    },
+    "204": {
+      "tipo": "tabuas",
+      "rotulo": "Tábuas V4",
+      "variaveis": [],
+      "versao_producao": 4,
+      "modo_producao": "conjunto",
+      "nome_saida": "tabuas_v4",
+      "gravar": true,
+      "serra_mm": 3.0,
+      "toco": 0.0,
+      "classes_tabuas": [
+        {
+          "id": 1,
+          "nome": "Classe 1",
+          "classe_cerne": "Classe 1"
+        },
+        {
+          "id": 2,
+          "nome": "Classe 2",
+          "classe_cerne": "Classe 2"
+        },
+        {
+          "id": 3,
+          "nome": "Classe 3",
+          "classe_cerne": "Classe 3"
+        }
+      ],
+      "x": 5950.0,
+      "y": 100.0
+    },
+    "205": {
+      "tipo": "calculo",
+      "rotulo": "Vol. Classe 1 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_volume_Classe_1_1_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 100.0
+    },
+    "206": {
+      "tipo": "calculo",
+      "rotulo": "Receita Classe 1 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_receita_Classe_1_1_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 271.0
+    },
+    "207": {
+      "tipo": "calculo",
+      "rotulo": "Qtd. Classe 1 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_quantidade_Classe_1_1_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 442.0
+    },
+    "208": {
+      "tipo": "calculo",
+      "rotulo": "Vol. Classe 2 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_volume_Classe_2_2_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 613.0
+    },
+    "209": {
+      "tipo": "calculo",
+      "rotulo": "Receita Classe 2 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_receita_Classe_2_2_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 784.0
+    },
+    "210": {
+      "tipo": "calculo",
+      "rotulo": "Qtd. Classe 2 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_quantidade_Classe_2_2_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 955.0
+    },
+    "211": {
+      "tipo": "calculo",
+      "rotulo": "Vol. Classe 3 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_volume_Classe_3_3_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 1126.0
+    },
+    "212": {
+      "tipo": "calculo",
+      "rotulo": "Receita Classe 3 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_receita_Classe_3_3_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 1297.0
+    },
+    "213": {
+      "tipo": "calculo",
+      "rotulo": "Qtd. Classe 3 total",
+      "variaveis": [],
+      "passos": [
+        {
+          "operador": "soma_classes"
+        }
+      ],
+      "nome_saida": "tabuas_v4_quantidade_Classe_3_3_total",
+      "gravar": true,
+      "x": 6340.0,
+      "y": 1468.0
+    }
+  },
+  "conexoes": [
+    {
+      "origem": 47,
+      "destino": 46,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 48,
+      "destino": 46,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 51,
+      "destino": 52,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 52,
+      "destino": 49,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 53,
+      "destino": 49,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 46,
+      "destino": 54,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 49,
+      "destino": 55,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 54,
+      "destino": 55,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 56,
+      "destino": 55,
+      "entrada_idx": 2
+    },
+    {
+      "origem": 58,
+      "destino": 57,
+      "entrada_idx": 0,
+      "dobra": 0.9430622800478963
+    },
+    {
+      "origem": 55,
+      "destino": 57,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 57,
+      "destino": 59,
+      "entrada_idx": 0,
+      "dobra": 0.9113144379492765
+    },
+    {
+      "origem": 60,
+      "destino": 59,
+      "entrada_idx": 1,
+      "dobra": 1.0
+    },
+    {
+      "origem": 61,
+      "destino": 59,
+      "entrada_idx": 2,
+      "dobra": 0.0
+    },
+    {
+      "origem": 58,
+      "destino": 62,
+      "entrada_idx": 0,
+      "dobra": 0.33844018108160123
+    },
+    {
+      "origem": 55,
+      "destino": 62,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 62,
+      "destino": 63,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 64,
+      "destino": 63,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 60,
+      "destino": 63,
+      "entrada_idx": 2
+    },
+    {
+      "origem": 72,
+      "destino": 73,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 69,
+      "destino": 76,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 76,
+      "destino": 70,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 73,
+      "destino": 77,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 77,
+      "destino": 74,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 70,
+      "destino": 74,
+      "entrada_idx": 1
+    },
+    {
+      "origem": 75,
+      "destino": 74,
+      "entrada_idx": 2
+    },
+    {
+      "origem": 59,
+      "destino": 79,
+      "entrada_idx": 0
+    },
+    {
+      "origem": 63,
+      "destino": 92,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 63,
+      "destino": 93,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 92,
+      "destino": 93,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 74,
+      "destino": 93,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 106,
+      "destino": 93,
+      "entrada_idx": 3,
+      "saida_idx": 0
+    },
+    {
+      "origem": 59,
+      "destino": 107,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 107,
+      "destino": 79,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 93,
+      "destino": 112,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 79,
+      "destino": 112,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 7,
+      "destino": 124,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 122,
+      "destino": 124,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 124,
+      "destino": 125,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 124,
+      "destino": 126,
+      "entrada_idx": 0,
+      "saida_idx": 1
+    },
+    {
+      "origem": 125,
+      "destino": 60,
+      "entrada_idx": 0,
+      "saida_idx": 0,
+      "dobra": 0.2777297116753868
+    },
+    {
+      "origem": 126,
+      "destino": 60,
+      "entrada_idx": 1,
+      "saida_idx": 0,
+      "dobra": 0.8322330407248865
+    },
+    {
+      "origem": 74,
+      "destino": 79,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 106,
+      "destino": 79,
+      "entrada_idx": 3,
+      "saida_idx": 0
+    },
+    {
+      "origem": 120,
+      "destino": 129,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 2,
+      "destino": 129,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 15,
+      "destino": 130,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 13,
+      "destino": 130,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 129,
+      "destino": 136,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 136,
+      "destino": 121,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 130,
+      "destino": 135,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 135,
+      "destino": 122,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 121,
+      "destino": 122,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 123,
+      "destino": 122,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 2,
+      "destino": 140,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 142,
+      "destino": 140,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 143,
+      "destino": 139,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 140,
+      "destino": 3,
+      "entrada_idx": 0,
+      "saida_idx": 0,
+      "dobra": 0.3527643299976609
+    },
+    {
+      "origem": 139,
+      "destino": 7,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 3,
+      "destino": 7,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 8,
+      "destino": 7,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 13,
+      "destino": 144,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 142,
+      "destino": 145,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 143,
+      "destino": 144,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 145,
+      "destino": 14,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 144,
+      "destino": 15,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 14,
+      "destino": 15,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 16,
+      "destino": 15,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 2,
+      "destino": 145,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 13,
+      "destino": 139,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 55,
+      "destino": 146,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 146,
+      "destino": 147,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 146,
+      "destino": 148,
+      "entrada_idx": 0,
+      "saida_idx": 1
+    },
+    {
+      "origem": 147,
+      "destino": 149,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 148,
+      "destino": 149,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 147,
+      "destino": 150,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 149,
+      "destino": 150,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 112,
+      "destino": 151,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 150,
+      "destino": 151,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 112,
+      "destino": 155,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 151,
+      "destino": 155,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 157,
+      "destino": 164,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 112,
+      "destino": 166,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 166,
+      "destino": 167,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 155,
+      "destino": 168,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 168,
+      "destino": 169,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 112,
+      "destino": 172,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 172,
+      "destino": 173,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 164,
+      "destino": 175,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 169,
+      "destino": 175,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 112,
+      "destino": 176,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 176,
+      "destino": 171,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 180,
+      "destino": 179,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 179,
+      "destino": 181,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 180,
+      "destino": 182,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 183,
+      "destino": 184,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 175,
+      "destino": 185,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 185,
+      "destino": 182,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 173,
+      "destino": 186,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 171,
+      "destino": 187,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 167,
+      "destino": 188,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 186,
+      "destino": 189,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 187,
+      "destino": 189,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 188,
+      "destino": 189,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 189,
+      "destino": 190,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 180,
+      "destino": 190,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 190,
+      "destino": 191,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 181,
+      "destino": 191,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 182,
+      "destino": 192,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 192,
+      "destino": 183,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 191,
+      "destino": 192,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 197,
+      "destino": 177,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 177,
+      "destino": 179,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 182,
+      "destino": 198,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 151,
+      "destino": 157,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 151,
+      "destino": 199,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 60,
+      "destino": 201,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 61,
+      "destino": 201,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 106,
+      "destino": 201,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 60,
+      "destino": 202,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 64,
+      "destino": 202,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 106,
+      "destino": 202,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 201,
+      "destino": 203,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 202,
+      "destino": 203,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 146,
+      "destino": 204,
+      "entrada_idx": 0,
+      "saida_idx": 2
+    },
+    {
+      "origem": 151,
+      "destino": 204,
+      "entrada_idx": 1,
+      "saida_idx": 0
+    },
+    {
+      "origem": 203,
+      "destino": 204,
+      "entrada_idx": 2,
+      "saida_idx": 0
+    },
+    {
+      "origem": 204,
+      "destino": 205,
+      "entrada_idx": 0,
+      "saida_idx": 0
+    },
+    {
+      "origem": 204,
+      "destino": 206,
+      "entrada_idx": 0,
+      "saida_idx": 1
+    },
+    {
+      "origem": 204,
+      "destino": 207,
+      "entrada_idx": 0,
+      "saida_idx": 2
+    },
+    {
+      "origem": 204,
+      "destino": 208,
+      "entrada_idx": 0,
+      "saida_idx": 3
+    },
+    {
+      "origem": 204,
+      "destino": 209,
+      "entrada_idx": 0,
+      "saida_idx": 4
+    },
+    {
+      "origem": 204,
+      "destino": 210,
+      "entrada_idx": 0,
+      "saida_idx": 5
+    },
+    {
+      "origem": 204,
+      "destino": 211,
+      "entrada_idx": 0,
+      "saida_idx": 6
+    },
+    {
+      "origem": 204,
+      "destino": 212,
+      "entrada_idx": 0,
+      "saida_idx": 7
+    },
+    {
+      "origem": 204,
+      "destino": 213,
+      "entrada_idx": 0,
+      "saida_idx": 8
+    }
+  ],
+  "grupos": {},
+  "estilo_ligacoes": "curvas"
+}

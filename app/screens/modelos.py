@@ -70,7 +70,9 @@ DICA_EQUACAO = (
     "Exemplo (1 variável):\n"
     "f(x) = (forma/escala)*(x/escala)^(forma-1)*EXP(-(x/escala)^forma)\n\n"
     "Exemplo (2 variáveis):\n"
-    "f(x1, x2) = a*exp(b/(x1*x2))"
+    "f(x1, x2) = a*exp(b/(x1*x2))\n\n"
+    "Taper com casca, sem casca e cerne: use o exemplo Garay. A saída deve ser d em cm, "
+    "com as dummies e combinações definidas em Variáveis dummy e produtos, na toragem."
 )
 
 DICA_COEFICIENTES = (
@@ -95,6 +97,7 @@ class TelaModelos(TelaBase):
         cabecalho = CabecalhoTela("Modelos", "Cadastre equações e coeficientes para representar o crescimento e o afilamento.")
         cabecalho.adicionar_acao(
             "Importar planilha", self.importar_modelos, icone="importar")
+        cabecalho.adicionar_acao("Exemplo Garay CC / SC / cerne", self._exemplo_garay)
         layout_raiz.addWidget(cabecalho)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -722,6 +725,17 @@ class TelaModelos(TelaBase):
             "\n\nAs \"Variáveis independentes\" não vêm da planilha — selecione a coluna da base "
             "de simulação de cada modelo importado aqui no programa antes de usá-lo.")
         QMessageBox.information(self, "Modelos", mensagem)
+
+    def _exemplo_garay(self):
+        self.novo_registro()
+        self.entry_nome.setText('Garay modificado — com casca, sem casca e cerne')
+        self.combo_tipo.setCurrentText('Afilamento / Taper')
+        self._definir_variaveis_x(['x1', 'x2', 'x3', 'x4', 'x5'])
+        self.txt_equacao.setPlainText('diametro = a*x1*(1+b*ln(1-c*(x2/x3)^d))*exp(-(e*x4+f*x5)/x1)')
+        self.txt_coeficientes.setPlainText('a = 2.596021\nb = 0.157843\nc = 0.998216\nd = 0.007721\ne = 1.421417\nf = 9.45757')
+        self.txt_observacoes.setPlainText('Exemplo fornecido pelo usuário. DAP e saída em cm; h e H em m. '
+            'x1=DAP, x2=h, x3=H. x4=0, x5=0: com casca; x4=1, x5=0: sem casca; x4=1, x5=1: cerne. '
+            'DAP na base de casca exigida no estudo original. Verifique a população e o domínio de aplicação antes de usar.')
 
     def novo_registro(self):
         self.registro_atual_id = None

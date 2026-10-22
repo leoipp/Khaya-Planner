@@ -7,16 +7,18 @@ Enquanto está aberto, trabalhamos numa cópia decodificada em pasta
 temporária (_caminho_trabalho); toda alteração é sincronizada de volta
 pro arquivo .mogno original via sincronizar().
 """
+import json
+import shutil
 import sqlite3
-import tempfile
 import threading
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QObject, Signal
 
 from . import codificacao
 from . import db
+from .temporarios import pasta_temporaria
 
 EXTENSAO = ".mogno"
 
@@ -57,6 +59,30 @@ _TAMANHO_LIMIAR_MB = 200  # abaixo disso, debounce fica igual a hoje
 _TAMANHO_TETO_EXTRA_MS = 18500  # debounce nunca passa de 1500+18500 = 20s
 
 
+class _AvisosSalvamento(QObject):
+    falhou = Signal(str)
+
+
+_avisos_salvamento = None
+_erro_sincronizacao = None
+_ultimo_aviso_sincronizacao = None
+
+
+def _executar_sincronizacao_segura(projeto_alvo,trabalho):
+    global _erro_sincronizacao, _ultimo_aviso_sincronizacao
+    try:
+        _sincronizar_agora(projeto_alvo,trabalho)
+    except Exception as erro:
+        _erro_sincronizacao=(projeto_alvo,trabalho,str(erro))
+        marcador=trabalho.with_name(trabalho.name+'.recovery.json')
+        try:marcador.write_text(json.dumps({'projeto':str(projeto_alvo),'trabalho':str(trabalho),'erro':str(erro)},ensure_ascii=False),'utf-8')
+        except OSError:pass
+        aviso=(str(projeto_alvo),str(erro))
+        if _avisos_salvamento is not None and _ultimo_aviso_sincronizacao!=aviso:
+            _ultimo_aviso_sincronizacao=aviso
+            _avisos_salvamento.falhou.emit(f'O projeto não foi salvo: {erro}\n\nOs dados de trabalho foram preservados em:\n{trabalho}\nLibere espaço e tente salvar novamente.')
+
+
 def _intervalo_debounce_ms():
     try:
         tamanho_mb = _caminho_trabalho.stat().st_size / (1024 * 1024)
@@ -73,7 +99,11 @@ def definir_agendador_qt():
     uma vez, com QApplication já instanciado (ver main.py), antes de abrir
     qualquer projeto. Sem chamar isto, sincronizar() regrava o .mogno na
     hora (síncrono), do jeito que já funciona fora da UI (scripts/testes)."""
-    global _temporizador
+    global _temporizador, _avisos_salvamento
+    if _avisos_salvamento is None:
+        from PySide6.QtWidgets import QMessageBox
+        _avisos_salvamento=_AvisosSalvamento()
+        _avisos_salvamento.falhou.connect(lambda mensagem: QMessageBox.warning(None,'Falha no salvamento',mensagem))
     if _temporizador is None:
         _temporizador = QTimer()
         _temporizador.setSingleShot(True)
@@ -121,45 +151,33 @@ def caminho_projeto():
 
 
 def _novo_arquivo_trabalho():
-    pasta = Path(tempfile.gettempdir()) / "khaya_planner_v2"
+    pasta = pasta_temporaria() / "khaya_planner_v2"
     pasta.mkdir(exist_ok=True)
     return pasta / f"{uuid.uuid4().hex}.sqlite"
 
 
 def _apagar_arquivo_trabalho(caminho):
-    """Remove a cópia de trabalho antiga em %TEMP% — sem isso, cada
+    """Remove a cópia de trabalho antiga em temp local do simulador — sem isso, cada
     abertura de projeto deixava a cópia decodificada anterior (mesmo
-    tamanho do .mogno, sem compressão) perdida em C:\\...\\Temp\\
-    khaya_planner_v2 pra sempre, mesmo trocando de projeto ou fechando o
+    tamanho do .mogno, sem compressão) perdida em temp/khaya_planner_v2 pra sempre, mesmo trocando de projeto ou fechando o
     app."""
     if caminho is not None:
         caminho.unlink(missing_ok=True)
 
 
 def limpar_arquivos_orfaos():
-    """Apaga qualquer arquivo sobrando em %TEMP%/khaya_planner_v2 de uma
-    sessão anterior que não fechou normalmente (processo morto à força,
-    crash, queda de energia) — _apagar_arquivo_trabalho só cobre troca/
-    fechamento normal de projeto, então um encerramento anormal deixava
-    a cópia de trabalho (pode ser do tamanho do projeto inteiro, vários
-    GB) perdida no disco pra sempre. Chamar uma vez no início do app,
-    antes de qualquer projeto ser aberto nesta sessão — nesse momento
-    tudo que já está na pasta é garantidamente órfão (esta sessão ainda
-    não criou nenhum arquivo de trabalho).
+    """Preserva bancos de sessões interrompidas para recuperação.
 
-    Se outra instância do app estiver rodando ao mesmo tempo com um
-    projeto aberto, o arquivo dela está em uso — no Windows isso faz
-    unlink() falhar com PermissionError (não dá pra apagar um arquivo
-    aberto por outro processo), então só pula: não é órfão de verdade,
-    é só um falso positivo de "existe na pasta sem eu ter criado"."""
-    pasta = Path(tempfile.gettempdir()) / "khaya_planner_v2"
+    Arquivos de trabalho só são removidos no encerramento normal, depois
+    da confirmação do salvamento. Um arquivo não aberto nesta sessão
+    pode conter a última cópia de alterações que falharam ao sincronizar.
+    """
+    pasta = pasta_temporaria() / "khaya_planner_v2"
     if not pasta.exists():
         return
-    for arquivo in pasta.iterdir():
-        try:
-            arquivo.unlink()
-        except OSError:
-            pass
+    # Bancos de sessões interrompidas podem conter alterações ainda não salvas.
+    # São mantidos para recuperação, inclusive quando não há marcador de erro.
+    return
 
 
 def _finalizar_sincronizacao_pendente():
@@ -174,7 +192,7 @@ def _finalizar_sincronizacao_pendente():
     havia_pendente = _cancelar_pendente()
     with _lock_sincronizacao:
         pass
-    if havia_pendente and _caminho_projeto is not None and _caminho_trabalho is not None:
+    if (havia_pendente or _erro_sincronizacao is not None) and _caminho_projeto is not None and _caminho_trabalho is not None:
         _sincronizar_agora(_caminho_projeto, _caminho_trabalho)
 
 
@@ -250,11 +268,21 @@ def confirmar_abertura(caminho_mogno, caminho_trabalho_novo):
     _apagar_arquivo_trabalho(caminho_trabalho_antigo)
 
 
-def fechar_projeto():
-    """Apaga a cópia de trabalho atual em %TEMP%, se houver — chamado ao
+def preparar_fechamento():
+    """Retira o QTimer na GUI antes de finalizar o projeto em outra thread."""
+    return _cancelar_pendente()
+
+
+def fechar_projeto(sincronizacao_pendente=False):
+    """Apaga a cópia de trabalho atual em temp local do simulador, se houver — chamado ao
     fechar o app (ver App._ao_fechar em app/window.py)."""
     global _caminho_projeto, _caminho_trabalho
-    _finalizar_sincronizacao_pendente()
+    if sincronizacao_pendente:
+        with _lock_sincronizacao:
+            pass
+        _sincronizar_agora(_caminho_projeto, _caminho_trabalho)
+    else:
+        _finalizar_sincronizacao_pendente()
     _apagar_arquivo_trabalho(_caminho_trabalho)
     _caminho_projeto = None
     _caminho_trabalho = None
@@ -317,7 +345,7 @@ def _disparar_sincronizacao_em_thread(caminho_projeto, caminho_trabalho_atual):
     global _temporizador_pendente
     _temporizador_pendente = None
     threading.Thread(
-        target=_sincronizar_agora, args=(caminho_projeto, caminho_trabalho_atual), daemon=True
+        target=_executar_sincronizacao_segura, args=(caminho_projeto, caminho_trabalho_atual), daemon=True
     ).start()
 
 
@@ -331,12 +359,27 @@ def _sincronizar_agora(caminho_projeto, caminho_trabalho_atual):
     página gravada pela metade). Serializado por _lock_sincronizacao —
     evita duas regravações mexendo no mesmo .tmp/arquivo de trabalho ao
     mesmo tempo."""
+    global _erro_sincronizacao, _ultimo_aviso_sincronizacao
     with _lock_sincronizacao:
         if not caminho_trabalho_atual.exists():
             return  # projeto foi trocado/fechado antes de rodar
 
+        _erro_sincronizacao=(caminho_projeto,caminho_trabalho_atual,'Salvamento não concluído')
         caminho_copia = caminho_trabalho_atual.with_name(
             caminho_trabalho_atual.name + ".backup.tmp")
+        caminho_temporario=caminho_projeto.with_name(caminho_projeto.name+'.tmp')
+        tamanho=caminho_trabalho_atual.stat().st_size
+        reserva=64*1024*1024
+        pastas={}
+        for caminho in (caminho_copia,caminho_temporario):
+            unidade=caminho.resolve().anchor.casefold()
+            if unidade not in pastas:pastas[unidade]=[caminho.parent,0]
+            pastas[unidade][1]+=tamanho
+        for pasta,necessario in pastas.values():
+            livre=shutil.disk_usage(pasta).free
+            if livre<necessario+reserva:
+                raise OSError(28,f'Espaço insuficiente em {pasta}: necessários {(necessario+reserva)/1024**3:.2f} GB; disponíveis {livre/1024**3:.2f} GB. O arquivo original foi preservado.')
+        iniciou_temporario=False
         try:
             origem = sqlite3.connect(str(caminho_trabalho_atual))
             origem.execute("PRAGMA busy_timeout = 30000")
@@ -350,7 +393,12 @@ def _sincronizar_agora(caminho_projeto, caminho_trabalho_atual):
                 origem.close()
 
             caminho_temporario = caminho_projeto.with_name(caminho_projeto.name + ".tmp")
+            iniciou_temporario=True
             codificacao.codificar_arquivo(caminho_copia, caminho_temporario)
             caminho_temporario.replace(caminho_projeto)
+            _erro_sincronizacao=None
+            _ultimo_aviso_sincronizacao=None
+            caminho_trabalho_atual.with_name(caminho_trabalho_atual.name+'.recovery.json').unlink(missing_ok=True)
         finally:
             Path(caminho_copia).unlink(missing_ok=True)
+            if iniciou_temporario:caminho_temporario.unlink(missing_ok=True)

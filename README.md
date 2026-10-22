@@ -174,7 +174,7 @@ Recomendações:
 - Não mova ou sobrescreva o projeto enquanto ele estiver aberto.
 - Mantenha cópias de segurança dos projetos importantes.
 - Aguarde o encerramento normal da aplicação para garantir a sincronização das últimas alterações.
-- Projetos grandes podem exigir espaço temporário adicional equivalente ao tamanho do arquivo.
+- O salvamento usa uma cópia consistente e um arquivo codificado temporário: reserve até duas vezes o tamanho do banco de trabalho em espaço livre adicional. O aplicativo verifica espaço antes de começar e preserva o original em caso de erro. Bancos de sessões interrompidas não são apagados automaticamente.
 
 ## Estrutura do código
 
@@ -237,6 +237,13 @@ python -m unittest discover -s tests -p "test_mapa*.py" -v
 
 ## Otimização de Planejamento (CPLEX)
 
+O padrão agora é **Modelo linear / inteiro misto configurável**. Escolha o indicador e maximização/minimização, o domínio das variáveis (B/I/C, inclusive por coluna), os limites e a regra opcional de seleção por grupo. As restrições são cadastradas por coluna de coeficientes, relação e limite. A capacidade máxima da serraria é um teto anual opcional e não impõe demanda mínima. A aba Resultados mostra valores atingidos e folgas. Veja [o guia do modelo configurável](docs/otimizacao-configuravel.md).
+
+### Regulação legada em duas etapas
+
+As instruções abaixo se referem somente à formulação legada, preservada para abrir modelos anteriores.
+
+
 Em **Configurações > Parâmetros > CPLEX**, selecione o `cplex.exe` da instalação IBM ILOG CPLEX (pasta `cplex/bin/<plataforma>`) e clique em **Salvar caminho do CPLEX**. Esse caminho é uma preferência do usuário/máquina e não é transportado com o projeto. A integração usa o executável local, sem exigir `docplex` ou o módulo Python `cplex` no ambiente do aplicativo.
 
 Na tela **Otimização de Planejamento**:
@@ -262,6 +269,28 @@ python -m unittest discover -s tests -p "test_planejamento.py" -v
 
 Os testes com solver real são executados quando `cplex` está no PATH; os demais validam dados, restrições, conversão de unidades e publicação atômica independentemente da instalação.
 
+## Arquivos temporários
+
+Os temporários de execução ficam em `temp/` dentro da pasta do simulador:
+cópias de trabalho dos projetos, intercâmbio Parquet entre processos,
+arquivos LP/SOL/MST e publicação dos resultados do CPLEX. A inicialização
+também direciona `tempfile`, `TEMP`, `TMP`, `TMPDIR` e `SQLITE_TMPDIR`
+para essa pasta, incluindo os processos filhos.
+
+O caminho centralizado em `app/core/temporarios.py` usa a pasta do código
+durante o desenvolvimento e `__compiled__.containing_dir` no Nuitka,
+inclusive em onefile, mantendo os temporários da aplicação ao lado do executável.
+A pasta precisa permitir escrita. Ao preparar o build onefile, configurar
+também o diretório de extração do bootstrap do Nuitka: essa extração ocorre
+antes da inicialização Python e não é controlada por este módulo.
+Arquivos de substituição atômica (`.tmp`) permanecem junto ao arquivo
+definitivo para garantir a substituição no mesmo volume.
+
 ## Licença
 
 Este projeto é distribuído sob a GNU General Public License v3.0 (GPL-3.0). Consulte o arquivo [`LICENSE`](LICENSE) para conhecer os termos.
+
+
+## Explorador de Dados
+
+A tela **Explorador de Dados** permite consultar tabelas do projeto ou de outro SQLite, executar SELECT/CTE, navegar por todas as páginas, exportar a consulta inteira para Excel e gerar gráficos. A otimização tem um acesso direto às tabelas de resultado. Veja [o guia](docs/explorador-dados.md).

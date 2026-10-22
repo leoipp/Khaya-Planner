@@ -53,6 +53,39 @@ class PlanejamentoUI(unittest.TestCase):
         self.assertAlmostEqual(antes['gap_alpha'], .0002)
         self.assertEqual(antes['restricoes'], [dict(coluna='2027', operador='<=', limite=1000, por_ha=True)])
 
+    def test_demanda_como_restricao_e_parametros_do_script_original(self):
+        t = self.tela
+        t.modelo.setCurrentIndex(t.modelo.findData('legado'))
+        cfg = t._cfg()
+        for chave, esperado in dict(demanda=30000, alpha_max=5, folga=0,
+                                    tolerancia=1e-5, gap_alpha=.0001, gap_vpl=.001,
+                                    tempo_alpha=1000, tempo_vpl=1000).items():
+            self.assertAlmostEqual(cfg[chave], esperado)
+        self.assertTrue(t.painel_demanda.isAncestorOf(t.campos['demanda']))
+        t.campos['demanda'].setValue(100)
+        self.assertIn('90.00 a 110.00', t.faixa_demanda.text())
+        self.assertEqual(t.producao.columnCount(), 7)
+
+    def test_modelo_configuravel_reabre_com_objetivo_dominios_e_capacidade(self):
+        import tempfile
+        from pathlib import Path
+        t=self.tela
+        t._esquema={'origem':['TALHÃO','cenario','Area','Idade','VPL','tipo','min','max','2027']}
+        t.tabela.addItem('origem')
+        t.sentido.setCurrentIndex(t.sentido.findData('min'))
+        t.capacidade_ativa.setChecked(True)
+        t.coluna_tipo.setCurrentIndex(t.coluna_tipo.findData('tipo'))
+        t.coluna_min.setCurrentIndex(t.coluna_min.findData('min'))
+        t.coluna_max.setCurrentIndex(t.coluna_max.findData('max'))
+        t._adicionar_restricao(dados=dict(coluna='2027',operador='<=',limite=100,por_ha=False))
+        esperado=t._cfg()
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho=str(Path(pasta,'modelo.json'))
+            with patch('app.screens.planejamento.QFileDialog.getSaveFileName',return_value=(caminho,'')):t._salvar_modelo()
+            t.sentido.setCurrentIndex(0);t.capacidade_ativa.setChecked(False)
+            with patch('app.screens.planejamento.QFileDialog.getOpenFileName',return_value=(caminho,'')),patch('app.screens.planejamento.QMessageBox.warning') as erros:t._carregar_modelo();erros.assert_not_called()
+            self.assertEqual(t._cfg(),esperado)
+
     def test_layout_sem_transbordamento_horizontal(self):
         t = self.tela
         for tema in ('light', 'dark'):

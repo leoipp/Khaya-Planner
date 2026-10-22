@@ -515,8 +515,9 @@ class TelaConfiguracoes(TelaBase):
         layout = QVBoxLayout(container)
 
         self.tabela_sortimentos = Tabela(
-            colunas=(
-                "nome", "limite_inferior", "limite_superior", "rendimento", "preco", "preco_pe"),
+            colunas=tuple(c for c in ("nome", "limite_inferior", "limite_superior", "rendimento", "preco", "preco_pe")
+                          if (c != 'preco' or getattr(self, '_mostrar_preco_serrada', True))
+                          and (c != 'rendimento' or getattr(self, '_mostrar_rendimento_sortimento', True))),
             tipos_iniciais={
                 "limite_inferior": "Float", "limite_superior": "Float", "rendimento": "Float",
                 "preco": "Float", "preco_pe": "Float"},
@@ -556,13 +557,15 @@ class TelaConfiguracoes(TelaBase):
 
         self.entry_sortimento_rendimento = _criar_entrada_numerica()
         self.entry_sortimento_rendimento.setMaximumWidth(16777215)
-        linha_campos.addLayout(
-            self._campo_empilhado("Rendimento (%)", self.entry_sortimento_rendimento), 1)
+        if getattr(self, '_mostrar_rendimento_sortimento', True):
+            linha_campos.addLayout(
+                self._campo_empilhado("Rendimento (%)", self.entry_sortimento_rendimento), 1)
 
         self.entry_sortimento_preco = _criar_entrada_numerica()
         self.entry_sortimento_preco.setMaximumWidth(16777215)
-        linha_campos.addLayout(
-            self._campo_empilhado("Madeira Serrada (R$/m³)", self.entry_sortimento_preco), 1)
+        if getattr(self, '_mostrar_preco_serrada', True):
+            linha_campos.addLayout(
+                self._campo_empilhado("Madeira Serrada (R$/m³)", self.entry_sortimento_preco), 1)
 
         self.entry_sortimento_preco_pe = _criar_entrada_numerica()
         self.entry_sortimento_preco_pe.setMaximumWidth(16777215)
@@ -1497,6 +1500,13 @@ class TelaConfiguracoes(TelaBase):
             conn.close()
         ids = [str(r[0]) for r in linhas]
         valores = [(r[1], r[2], r[3], r[4], r[5], r[6]) for r in linhas]
+        indices = [0,1,2]
+        if getattr(self, '_mostrar_rendimento_sortimento', True):
+            indices.append(3)
+        if getattr(self, '_mostrar_preco_serrada', True):
+            indices.append(4)
+        indices.append(5)
+        valores = [tuple(v[i] for i in indices) for v in valores]
         self.tabela_sortimentos.definir_linhas(valores, ids=ids)
 
     def _ao_selecionar_sortimento(self):

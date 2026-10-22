@@ -31,8 +31,7 @@ ITENS_NAVEGACAO = [
     ("mapa", "Mapa"),
     ("modelos", "Modelos"),
     ("sortimentos", "Sortimentos"),
-    ("desdobro", "Desdobro de Toretes"),
-    ("toragem", "Taper e Toragem"),
+    ("toragem", "Desdobro"),
     ("custos", "Custos"),
     ("weibull_ifc", "Weibull"),
     ("simulacao", "Simulação"),
@@ -40,6 +39,7 @@ ITENS_NAVEGACAO = [
     ("ingressos_curvas", "Ingressos e Curvas"),
     ("resumos_cenarios", "Resumos de Cenários"),
     ("planejamento", "Otimização de Planejamento"),
+    ("explorador_dados", "Explorador de Dados"),
     ("configuracoes", "Configurações"),
 ]
 
@@ -51,7 +51,6 @@ FABRICAS_TELAS = {
     "mapa": ("app.screens.mapa", "TelaMapa"),
     "modelos": ("app.screens.modelos", "TelaModelos"),
     "sortimentos": ("app.screens.sortimentos", "TelaSortimentos"),
-    "desdobro": ("app.screens.desdobro", "TelaDesdobro"),
     "toragem": ("app.screens.toragem", "TelaToragem"),
     "custos": ("app.screens.custos", "TelaCustos"),
     "weibull_ifc": ("app.screens.weibull_ifc", "TelaWeibullIFC"),
@@ -60,6 +59,7 @@ FABRICAS_TELAS = {
     "ingressos_curvas": ("app.screens.ingressos_curvas_distribuicao", "TelaIngressosCurvasDistribuicao"),
     "resumos_cenarios": ("app.screens.resumos_cenarios", "TelaResumosCenarios"),
     "planejamento": ("app.screens.planejamento", "TelaPlanejamento"),
+    "explorador_dados": ("app.screens.explorador_dados", "TelaExploradorDados"),
     "configuracoes": ("app.screens.configuracoes", "TelaConfiguracoes"),
 }
 
@@ -68,6 +68,19 @@ FABRICAS_TELAS = {
 # propósito, pra continuar clicável mesmo com o cartão escondido (senão
 # não teria como reabrir).
 LARGURA_TRILHO = 24
+
+
+class _ThreadFecharProjeto(QThread):
+    def __init__(self, pendente, parent=None):
+        super().__init__(parent)
+        self.pendente = pendente
+        self.erro = None
+
+    def run(self):
+        try:
+            core_projeto.fechar_projeto(self.pendente)
+        except Exception as erro:
+            self.erro = str(erro)
 
 
 class _ThreadAbrirProjeto(QThread):
@@ -114,7 +127,7 @@ class JanelaPrincipal(QMainWindow):
         core_projeto.definir_agendador_qt()
         # Limpa cópias de trabalho órfãs de uma sessão anterior que não
         # fechou normalmente — antes de qualquer projeto ser aberto nesta
-        # sessão, tudo em %TEMP%/khaya_planner_v2 é garantidamente órfão.
+        # sessão, tudo em temp/khaya_planner_v2 é garantidamente órfão.
         core_projeto.limpar_arquivos_orfaos()
 
         self._thread_abertura = None
@@ -379,13 +392,51 @@ class JanelaPrincipal(QMainWindow):
             self._revisao_telas[self._tela_atual] = core_projeto.revisao_dados()
 
     def closeEvent(self, evento):
+        if getattr(self, '_fechamento_concluido', False):
+            super().closeEvent(evento)
+            return
+        if getattr(self, '_fechando', False):
+            evento.ignore()
+            return
+        explorador=self.telas.get('explorador_dados')
+        if explorador is not None and explorador.ocupado:
+            QMessageBox.information(self,'Explorador de Dados','Aguarde a consulta ou exportação terminar antes de fechar.')
+            evento.ignore()
+            return
         planejamento = self.telas.get('planejamento')
         if planejamento is not None and planejamento.rodando:
             QMessageBox.information(self, "Planejamento", "Aguarde a otimização terminar antes de fechar o aplicativo.")
             evento.ignore()
             return
-        core_projeto.fechar_projeto()
-        super().closeEvent(evento)
+        if any(thread.isRunning() for thread in self.findChildren(QThread)):
+            QMessageBox.information(self, 'Operação em andamento',
+                'Aguarde a operação terminar ou interrompa a simulação antes de fechar.')
+            evento.ignore()
+            return
+        if not core_projeto.projeto_aberto():
+            super().closeEvent(evento)
+            return
+        evento.ignore()
+        pendente = core_projeto.preparar_fechamento()
+        self._fechando = True
+        self._dialogo_fechamento = DialogoProgresso(
+            'Fechando projeto', 'Salvando o projeto antes de fechar…', self)
+        self._dialogo_fechamento.show()
+        self._thread_fechamento = _ThreadFecharProjeto(pendente, self)
+        self._thread_fechamento.finished.connect(self._concluir_fechamento)
+        self._thread_fechamento.start()
+
+    def _concluir_fechamento(self):
+        erro = self._thread_fechamento.erro
+        self._dialogo_fechamento.accept()
+        self._thread_fechamento.deleteLater()
+        self._fechando = False
+        if erro:
+            QMessageBox.warning(self, 'Projeto não salvo',
+                f'{erro}\nO aplicativo permanecerá aberto e o banco de trabalho será preservado.')
+            return
+        self._fechamento_concluido = True
+        self.close()
 
     def _atualizar_titulo(self):
         nome = core_projeto.nome_projeto()

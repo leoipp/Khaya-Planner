@@ -77,6 +77,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+from .temporarios import pasta_temporaria
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -821,53 +822,47 @@ def sobrevivencia_weibull(x, forma, escala):
     verdade — ex: forma/escala recuperados/preditos numa linha sem dado
     suficiente) mas não precisa derrubar nada: o limite matemático já dá
     o resultado certo sozinho (x/0 -> +inf -> exp(-inf) = 0 pra x > 0;
-    0/0 -> NaN só no ponto x = 0, genuinamente indefinido ali) — só o
-    numpy avisa (RuntimeWarning) no caminho até lá. errstate silencia
-    esse aviso esperado sem mudar o valor calculado."""
+    0/0 -> NaN só no ponto x = 0, genuinamente indefinido ali).
+    O cálculo em log evita overflow intermediário e mantém esse limite."""
     x = np.maximum(x, 0.0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.exp(-((x / escala) ** forma))
+    # Potências grandes são +inf e a sobrevivência correspondente é zero.
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore", under="ignore"):
+        log_razao = np.log(x) - np.log(np.asarray(escala, dtype=float))
+        return np.exp(-np.exp(np.asarray(forma) * log_razao))
 
 
 def densidade_weibull(x, forma, escala, limite_truncamento=None):
-    """f(x) = densidade de probabilidade da Weibull (Location = 0):
-    (forma/escala) * (x/escala)^(forma-1) * exp(-(x/escala)^forma), x >= 0
-    (zero fora do suporte). Usada pelo MIP (calcular_mip_continuo/
-    _calcular_mip_talhao) pra achar o Diâmetro Diferenciador — a primeira
-    classe, percorrendo do menor pro maior diâmetro, em que
-    fdp(idade) - fdp(idade-1) muda de negativo pra positivo — e pra montar
-    a coluna `densidade` da distribuição exportada (ver
-    _calcular_matriz_distribuicao).
+    """Densidade Weibull, calculada em log para evitar inf * 0 na cauda.
 
-    `limite_truncamento` (opcional): ponto de corte L de uma Weibull
-    truncada à esquerda (ver weibull_fit.ajustar_grupo/
-    `truncado_esquerda_<etapa>` — grupos ajustados com MLE truncado, ex.
-    desbaste por área basal). Precisa já vir num shape "broadcastável"
-    contra `x`/`forma`/`escala` (mesma convenção deles aqui — o chamador
-    decide o shape, esta função não reformata); NaN numa posição = sem
-    truncamento ali (cai na fórmula comum). Onde há truncamento:
-
-        f_T(x) = 0,          x < L
-        f_T(x) = f(x) / S(L), x >= L
-
-    (densidade condicional a X >= L — ver comentário em
-    weibull_fit.py:111-114).
-
-    `escala` <= 0 é degenerado (ver sobrevivencia_weibull) — o resultado
-    (0 ou NaN, conforme o limite matemático) sai certo sozinho, só o
-    numpy avisa (RuntimeWarning) no caminho; errstate silencia."""
+    Com truncamento L, subtrai os riscos acumulados antes de exponenciar:
+    f_T(x) = exp(log(k/s) + (k-1)*log(x/s) - ((x/s)^k-(L/s)^k)).
+    NaN em L significa sem truncamento. Mantém broadcasting de arrays.
+    """
     x = np.maximum(x, 0.0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        f = (forma / escala) * (x / escala) ** (forma - 1.0) * np.exp(-((x / escala) ** forma))
-    if limite_truncamento is None:
-        return f
-
-    L = np.asarray(limite_truncamento, dtype=float)
-    com_truncamento = ~np.isnan(L)
-    L_seguro = np.where(com_truncamento, L, 0.0)
-    denominador = np.where(com_truncamento, sobrevivencia_weibull(L_seguro, forma, escala), 1.0)
-    f_truncada = np.where(x < L_seguro, 0.0, f / denominador)
-    return np.where(com_truncamento, f_truncada, f)
+    forma = np.asarray(forma, dtype=float)
+    escala = np.asarray(escala, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore", under="ignore"):
+        log_razao = np.log(x) - np.log(escala)
+        z = forma * log_razao
+        # Para k=1, x=0: o fator x^(k-1) vale 1, não 0*log(0).
+        log_fator = np.log(forma) - np.log(escala) + np.where(forma == 1, 0., (forma-1)*log_razao)
+        risco = np.exp(z)
+        if limite_truncamento is not None:
+            L = np.asarray(limite_truncamento, dtype=float)
+            truncado = ~np.isnan(L)
+            L_seguro = np.maximum(np.where(truncado, L, 0.), 0.)
+            zL = forma * (np.log(L_seguro)-np.log(escala))
+            # exp(z)-exp(zL), sem cancelar dois números grandes próximos.
+            log_diferenca = z + np.log(-np.expm1(zL-z))
+            diferenca = np.where(x == L_seguro, 0., np.exp(log_diferenca))
+            risco = np.where(truncado, diferenca, risco)
+        log_f = log_fator - risco
+        # O risco domina qualquer potência na cauda: densidade tende a zero.
+        f = np.where(np.isposinf(risco), 0., np.exp(log_f))
+        if limite_truncamento is not None:
+            f = np.where(truncado & (x < L_seguro), 0., f)
+        # Parâmetros inválidos não são convertidos em resultados aparentes válidos.
+        return np.where((forma > 0) & (escala > 0), f, np.nan)
 
 
 TIPOS_NORMALIZACAO_WEIBULL = ("aditiva", "proporcional")
@@ -3299,7 +3294,7 @@ def _gravar_resultado_worker_parquet(resultado: Dict) -> Dict:
     Essa separação é intencional para permitir migrar a persistência
     permanente para Parquet sem quebrar projetos SQLite existentes.
     """
-    pasta = Path(tempfile.mkdtemp(prefix="khaya_cenario_parquet_"))
+    pasta = Path(tempfile.mkdtemp(prefix="khaya_cenario_parquet_", dir=pasta_temporaria()))
     try:
         df_populacao = resultado.pop("_df_populacao")
         linhas_distribuicao = resultado.pop("_linhas_distribuicao")

@@ -80,7 +80,11 @@ def _avaliar_expressao_bruta(equacao: str, coeficientes: dict, variaveis: dict):
     namespace.update(variaveis or {})
 
     try:
-        return eval(codigo, namespace)
+        # Grades de taper e variantes podem avaliar pontos fora do domínio,
+        # posteriormente descartados por suas máscaras. Não emitir um aviso
+        # por ponto/lote: o consumidor valida o resultado que de fato utiliza.
+        with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
+            return eval(codigo, namespace)
     except Exception as e:
         raise ValueError(f"Erro ao avaliar \"{expressao}\": {e}")
 

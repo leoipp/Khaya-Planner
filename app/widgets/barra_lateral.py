@@ -125,8 +125,8 @@ class BarraLateral(QFrame):
         grupos = [
             ('DADOS E CADASTROS', ('mapa', 'sortimentos', 'custos')),
             ('MODELAGEM', ('modelos', 'weibull_ifc', 'construtor_variaveis')),
-            ('SIMULAÇÃO E DESDOBRO', ('simulacao', 'toragem', 'desdobro', 'ingressos_curvas')),
-            ('PLANEJAMENTO', ('resumos_cenarios', 'planejamento')),
+            ('SIMULAÇÃO E DESDOBRO', ('simulacao', 'toragem', 'ingressos_curvas')),
+            ('PLANEJAMENTO', ('resumos_cenarios', 'planejamento', 'explorador_dados')),
         ]
         usados = {'visao_geral'}
         for titulo, chaves in grupos:
@@ -147,7 +147,7 @@ class BarraLateral(QFrame):
 
     def _adicionar_botao_nav(self, layout, chave, rotulo, callback, cor):
         nomes = {'planejamento': 'Otimização', 'construtor_variaveis': 'Construtor de variáveis',
-                 'desdobro': 'Desdobro de toretes', 'resumos_cenarios': 'Resumos de cenários'}
+                 'resumos_cenarios': 'Resumos de cenários'}
         botao = QPushButton('  ' + nomes.get(chave, rotulo))
         botao.setToolTip(rotulo)
         botao.setObjectName('BarraLateralBotao')

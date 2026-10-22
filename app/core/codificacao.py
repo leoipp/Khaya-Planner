@@ -40,15 +40,19 @@ def _xor_arquivo(entrada, saida, progress_callback=None, bytes_totais=None) -> N
     chamado depois de cada bloco — usado por quem chama (ver
     projeto.abrir_projeto) pra alimentar uma barra de progresso enquanto
     isso roda numa thread de fundo."""
-    bloco_chave = _bloco_chave(_TAMANHO_BLOCO)
+    tamanho_bloco = min(_TAMANHO_BLOCO, bytes_totais) if bytes_totais else _TAMANHO_BLOCO
+    bloco_chave = _bloco_chave(tamanho_bloco)
+    buffer = bytearray(tamanho_bloco)
+    vista = memoryview(buffer)
+    arr = np.frombuffer(buffer, dtype=np.uint8)
     bytes_processados = 0
     while True:
-        pedaco = entrada.read(_TAMANHO_BLOCO)
-        if not pedaco:
+        quantidade = entrada.readinto(buffer)
+        if not quantidade:
             break
-        arr = np.frombuffer(pedaco, dtype=np.uint8)
-        saida.write((arr ^ bloco_chave[:len(arr)]).tobytes())
-        bytes_processados += len(pedaco)
+        np.bitwise_xor(arr[:quantidade], bloco_chave[:quantidade], out=arr[:quantidade])
+        saida.write(vista[:quantidade])
+        bytes_processados += quantidade
         if progress_callback is not None:
             progress_callback(bytes_processados, bytes_totais)
 

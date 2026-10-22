@@ -49,19 +49,24 @@ from ..widgets.tabela import Tabela
 from ..widgets.cabecalho_tela import CabecalhoTela
 from ..widgets.layout_fluxo import LayoutFluxo
 from .base import TelaBase
+from .produtos_taper import DialogoProdutosTaper
+from .tabuas_no import DialogoNoTabuas
+from ..core import classes_tabuas
+from ..core.toragem import configuracao_produtos_padrao
+from ..core.tabuas_grafo import saidas_tabuas
 
 TABELAS_ORIGEM = [simulacao.TABELA_POPULACAO, NOME_TABELA_BASE_IFC, NOME_TABELA_BASE_IFC_BYTREE]
 
 PREVIEW_LINHAS = 200
 
-LARGURA_NO = 170
-ALTURA_COLUNA = 40
+LARGURA_NO = 260
+ALTURA_COLUNA = 64
 # 44 (não 26) — dá espaço pro cabeçalho "Tipo:" + campo estilo input +
 # até 1 linha extra (ver _campo_nome_no/_desenhar_campo_nome, que por isso
 # limita cada nó a NO MÁXIMO 1 linha extra) sem espremer a 1ª linha de
 # entrada/saída logo abaixo.
-ALTURA_TITULO_MODELO = 44
-ALTURA_POR_ENTRADA = 20
+ALTURA_TITULO_MODELO = 60
+ALTURA_POR_ENTRADA = 26
 RAIO_PINO = 6
 RAIO_CANTO_NO = 8
 
@@ -107,7 +112,7 @@ _CORES_BASE = {
     "distribuicao": COR_DISTRIBUICAO, "acumulado": COR_ACUMULADO,
     "rendimento_sortimento": COR_RENDIMENTO_SORTIMENTO,
     "receita_sortimento": COR_RECEITA_SORTIMENTO, "vpl_sortimento": COR_VPL_SORTIMENTO,
-    "vet_sortimento": COR_VET_SORTIMENTO, "afilamento": COR_AFILAMENTO,
+    "vet_sortimento": COR_VET_SORTIMENTO, "afilamento": COR_AFILAMENTO, "tabuas": "#88662c",
     "recuperacao_weibull": COR_RECUPERACAO_WEIBULL, "custo_colheita": COR_CUSTO_COLHEITA,
     "custo_formacao": COR_CUSTO_FORMACAO,
 }
@@ -115,7 +120,7 @@ _CORES_NAO_GRAVA = {
     "saida": COR_SAIDA_NAO_GRAVA, "calculo": COR_CALCULO_NAO_GRAVA, "acumulado": COR_ACUMULADO_NAO_GRAVA,
     "rendimento_sortimento": COR_RENDIMENTO_SORTIMENTO_NAO_GRAVA,
     "receita_sortimento": COR_RECEITA_SORTIMENTO_NAO_GRAVA, "vpl_sortimento": COR_VPL_SORTIMENTO_NAO_GRAVA,
-    "vet_sortimento": COR_VET_SORTIMENTO_NAO_GRAVA, "afilamento": COR_AFILAMENTO_NAO_GRAVA,
+    "vet_sortimento": COR_VET_SORTIMENTO_NAO_GRAVA, "afilamento": COR_AFILAMENTO_NAO_GRAVA, "tabuas": "#c5b28f",
     "recuperacao_weibull": COR_RECUPERACAO_WEIBULL_NAO_GRAVA,
     "custo_colheita": COR_CUSTO_COLHEITA_NAO_GRAVA, "custo_formacao": COR_CUSTO_FORMACAO_NAO_GRAVA,
 }
@@ -137,7 +142,7 @@ ZOOM_PASSO_RODA = 1.1
 ZOOM_PASSO_BOTAO = 1.25
 
 _ROTULOS_SAIDA = {
-    "afilamento": ("Aproveitável", "Biomassa"),
+    "afilamento": ("Aproveitável", "Biomassa", "Modelo"),
     "recuperacao_weibull": ("Forma", "Escala"),
 }
 
@@ -152,7 +157,11 @@ def _n_saidas(no):
     """Nós comuns têm 1 saída; "afilamento" e "recuperacao_weibull" têm 2
     (Aproveitável/Biomassa e Forma/Escala — ver core/construtores.py:
     avaliar_grafo)."""
-    return 2 if no["tipo"] in ("afilamento", "recuperacao_weibull") else 1
+    if no['tipo'] == 'afilamento':
+        return 3
+    if no['tipo'] == 'tabuas':
+        return max(1,len(saidas_tabuas(no)))
+    return 2 if no['tipo'] == 'recuperacao_weibull' else 1
 
 
 def _n_entradas(no):
@@ -164,6 +173,8 @@ def _n_entradas(no):
         return len(no["entradas"]) + 1  # +1: pino vazio sempre disponível no fim
     if no["tipo"] in ("modelo", "distribuicao", "vpl_sortimento", "recuperacao_weibull"):
         return len(no["variaveis"])
+    if no['tipo'] == 'tabuas' and no.get('versao_producao') == 4:
+        return 3
     return 1  # calculo, acumulado, rendimento/receita/vet_sortimento, afilamento, custo_formacao
 
 
@@ -276,7 +287,7 @@ def _titulo_no_automatico(no):
 # desenho; os demais (ex: "classe_diametrica", que não tem nome próprio)
 # caem de volta no título de sempre (_titulo_no_automatico).
 _ROTULO_TIPO_NO = {
-    "coluna": "Coluna", "modelo": "Modelo", "afilamento": "Taper", "saida": "Saída",
+    "coluna": "Coluna", "modelo": "Modelo", "afilamento": "Taper", "tabuas": "Tábuas", "saida": "Saída",
     "calculo": "Cálculo", "distribuicao": "Distribuição", "acumulado": "Acumulado",
     "rendimento_sortimento": "Rendimento Serraria", "receita_sortimento": "Receita Total",
     "vpl_sortimento": "VPL", "vet_sortimento": "VET", "custo_colheita": "Custo Colheita",
@@ -292,7 +303,7 @@ _ROTULO_TIPO_NO = {
 _TIPOS_COM_GRAVAR_NO_CORPO = frozenset((
     "saida", "calculo", "distribuicao", "acumulado", "receita_sortimento",
     "rendimento_sortimento", "vpl_sortimento", "vet_sortimento", "custo_colheita",
-    "custo_formacao", "afilamento",
+    "custo_formacao", "afilamento", "tabuas",
 ))
 
 
@@ -414,7 +425,7 @@ class TelaConstrutorVariaveis(TelaBase):
         # Aparência pertence ao grafo: assim cada construtor reabre com o
         # traçado escolhido pelo usuário. "retas" mantém o desenho
         # ortogonal histórico; "curvas" usa Bézier suave.
-        self._estilo_ligacoes = "retas"
+        self._estilo_ligacoes = "curvas"
 
         self._colunas_disponiveis = []
         self._modelos_disponiveis = []
@@ -575,14 +586,10 @@ class TelaConstrutorVariaveis(TelaBase):
             for grupo in self._afilamento_disponiveis:
                 rotulo = _rotulo_modelo(grupo["nome"], grupo["variantes"])
                 submenu_taper.addAction(rotulo, lambda g=grupo: self._adicionar_no_afilamento(g))
-        submenu_taper.setToolTip(
-            "Só modelos cadastrados em Modelos com tipo \"Afilamento / Taper\" e exatamente 3 "
-            "Variáveis (x), lidas por posição: DAP (vem da classe diamétrica, sem fio), h "
-            "(varrida internamente de 0 até Ht em passos de 0,1 m, sem fio) e H/Ht — único pino "
-            "de entrada do nó, precisa vir de um Modelo hipsométrico ligado em Classe "
-            "Diamétrica. Gera duas saídas por classe: volume aproveitável (toras inteiras, "
-            "segundo Comprimento/Diâmetro mínimo da tora em Configurações) e volume de "
-            "biomassa (resíduo = total do fuste menos aproveitável).")
+        submenu_taper.setToolTip('Modelo de afilamento com DAP e altura por classe diamétrica. '
+            'Configure as dummies e os produtos com o botão direito no nó. '
+            'A saída Modelo alimenta o nó Tábuas; Aproveitável e Biomassa mantêm os volumes do perfil base.')
+        menu.addAction('Tábuas',self._adicionar_no_tabuas)
         menu.addSeparator()
 
         for rotulo, callback, dica in self._definir_nos_especiais():
@@ -673,6 +680,7 @@ class TelaConstrutorVariaveis(TelaBase):
         self.combo_estilo_ligacoes.addItem("Ligações curvas", "curvas")
         self.combo_estilo_ligacoes.setToolTip("Formato visual das ligações entre os nós")
         self.combo_estilo_ligacoes.setMinimumContentsLength(14)
+        self.combo_estilo_ligacoes.setCurrentIndex(1)
         self.combo_estilo_ligacoes.currentIndexChanged.connect(self._alterar_estilo_ligacoes)
         barra_zoom.addWidget(self.combo_estilo_ligacoes)
         self.botao_maximizar_canvas = self._botao_icone("maximizar", "Maximizar canvas")
@@ -826,7 +834,7 @@ class TelaConstrutorVariaveis(TelaBase):
         modelo, agrupando todas as linhas de Modelos que compartilham esse
         nome (uma por estrato) numa lista "variantes". Tipo "Afilamento /
         Taper" fica de fora de `self._modelos_gerais_disponiveis` — só
-        entra como nó "afilamento" dedicado (3 entradas fixas, 2 saídas,
+        entra como nó "afilamento" dedicado (altura por classe, volumes e modelo do perfil,
         ver _atualizar_afilamento_disponiveis), nunca como nó "modelo"
         genérico (1 entrada, 1 saída — semântica errada pra ele). Sem
         lista própria no painel lateral — ver _abrir_menu_modelos, que lê
@@ -975,12 +983,8 @@ class TelaConstrutorVariaveis(TelaBase):
         self._redesenhar()
 
     def _adicionar_no_afilamento(self, grupo):
-        if len(grupo["variaveis"]) != 3:
-            QMessageBox.warning(
-                self, "Construtor de Variáveis",
-                f"\"{grupo['nome']}\" tem {len(grupo['variaveis'])} Variável(is) (x) cadastrada(s) "
-                "em Modelos — um nó de Afilamento precisa de exatamente 3 (DAP, h, H, nessa "
-                "ordem). Ajuste em Modelos antes de adicionar.")
+        if len(grupo['variaveis']) < 3:
+            QMessageBox.warning(self,'Construtor de Variáveis','Cadastre ao menos as entradas DAP, h e H no modelo.')
             return
         no_id = self._proximo_id
         self._proximo_id += 1
@@ -996,6 +1000,51 @@ class TelaConstrutorVariaveis(TelaBase):
         }
         self._centralizar_em_mundo(x, y)
         self._redesenhar()
+
+    def _adicionar_no_tabuas(self):
+        conn=conectar()
+        try:
+            cadastro=classes_tabuas.listar(conn)
+            regras=classes_tabuas.carregar_classificacao_cerne(conn)
+        finally:conn.close()
+        if not cadastro:
+            QMessageBox.warning(self,'Tábuas','Cadastre as classes em Sortimentos → Classes de tábua.')
+            return
+        nomes={c['nome'] for c in regras}
+        no_id=self._proximo_id;self._proximo_id+=1
+        x,y=self._proxima_posicao()
+        self.nos[no_id]=dict(tipo='tabuas',rotulo='Tábuas',x=x,y=y,variaveis=[],nome_saida=f'tabuas_{no_id}',gravar=True,
+            serra_mm=3.,toco=0.,modo_producao='conjunto',versao_producao=4,classes_tabuas=[dict(id=c['id'],nome=c['nome'],classe_cerne=c['nome'] if c['nome'] in nomes else None) for c in cadastro])
+        self._centralizar_em_mundo(x,y);self._redesenhar()
+
+    def _configurar_dummies_taper(self,no_id):
+        no=self.nos[no_id]
+        variante=(no.get('variantes') or [{}])[0]
+        config=no.get('configuracao_produtos') or configuracao_produtos_padrao(variante.get('equacao',''),no['variaveis'])
+        d=DialogoProdutosTaper(no.get('nome','Taper'),no['variaveis'],config,self)
+        if d.exec()==QDialog.DialogCode.Accepted:
+            no['configuracao_produtos']=d.configuracao
+            self._redesenhar()
+
+    def _configurar_tabuas(self,no_id):
+        no=self.nos[no_id]
+        conn=conectar()
+        try:
+            cadastro=classes_tabuas.listar(conn);regras=classes_tabuas.carregar_classificacao_cerne(conn)
+        finally:conn.close()
+        anteriores=saidas_tabuas(no)
+        d=DialogoNoTabuas(no,cadastro,regras,self)
+        if d.exec()==QDialog.DialogCode.Accepted:
+            no.update(d.configuracao)
+            novas={s['chave']:i for i,s in enumerate(saidas_tabuas(no))}
+            conexoes=[]
+            for c in self.conexoes:
+                if c['origem']==no_id:
+                    idx=c.get('saida_idx',0)
+                    if idx>=len(anteriores) or anteriores[idx]['chave'] not in novas:continue
+                    c['saida_idx']=novas[anteriores[idx]['chave']]
+                conexoes.append(c)
+            self.conexoes=conexoes;self._redesenhar()
 
     def _adicionar_no_classe_diametrica(self):
         no_id = self._proximo_id
@@ -1303,8 +1352,8 @@ class TelaConstrutorVariaveis(TelaBase):
             return ALTURA_TITULO_MODELO + ALTURA_POR_ENTRADA * 2 + 8
         if no["tipo"] == "custo_formacao":
             return ALTURA_TITULO_MODELO + ALTURA_POR_ENTRADA * 1 + 8
-        if no["tipo"] == "afilamento":
-            return ALTURA_TITULO_MODELO + max(1, _n_saidas(no)) * ALTURA_POR_ENTRADA + 8
+        if no["tipo"] in ("afilamento", "tabuas"):
+            return ALTURA_TITULO_MODELO + max(_n_entradas(no), _n_saidas(no), 1) * ALTURA_POR_ENTRADA + 8
         n_entradas = max(len(no["variaveis"]), _n_saidas(no), 1)
         return ALTURA_TITULO_MODELO + n_entradas * ALTURA_POR_ENTRADA + 8
 
@@ -1402,12 +1451,11 @@ class TelaConstrutorVariaveis(TelaBase):
         pintor.setPen(QPen(cor_grade, 1))
         x = inicio_x
         while x < self.canvas.width():
-            pintor.drawLine(QPointF(x, 0), QPointF(x, self.canvas.height()))
-            x += passo
-        y = inicio_y
-        while y < self.canvas.height():
-            pintor.drawLine(QPointF(0, y), QPointF(self.canvas.width(), y))
-            y += passo
+            y=inicio_y
+            while y < self.canvas.height():
+                pintor.drawPoint(QPointF(x,y))
+                y+=passo
+            x+=passo
         pintor.restore()
 
     def _desenhar_grupo(self, pintor, grupo_id, grupo):
@@ -1546,9 +1594,9 @@ class TelaConstrutorVariaveis(TelaBase):
         (_desenhar_campo_nome) pra também servir de base pro hit-test do
         checkbox "Gravar" (ver _retangulo_checkbox_gravar), sem duplicar
         (e desalinhar) essa matemática em dois lugares."""
-        tam_rotulo = round(7 * self._zoom)
+        tam_rotulo = round(10 * self._zoom)
         y_rotulo = ty + tam_rotulo + 3 * self._zoom
-        altura_pill = max(1, round(14 * self._zoom))
+        altura_pill = max(1, round(18 * self._zoom))
         y_pill = y_rotulo + tam_rotulo * 0.9 + 4 * self._zoom
         y_extra = y_pill + altura_pill + 2 * self._zoom
         return {"tam_rotulo": tam_rotulo, "y_rotulo": y_rotulo, "altura_pill": altura_pill, "y_pill": y_pill,
@@ -1575,7 +1623,7 @@ class TelaConstrutorVariaveis(TelaBase):
         gap = 4 * self._zoom
         n = max(1, len(valores))
         largura_pill = (larg_tela - 2 * margem - gap * (n - 1)) / n
-        tam_valor = round(7.5 * self._zoom)
+        tam_valor = round(10 * self._zoom)
         fonte_valor = QFont()
         fonte_valor.setPixelSize(max(1, tam_valor))
         for i, valor in enumerate(valores):
@@ -1624,7 +1672,7 @@ class TelaConstrutorVariaveis(TelaBase):
                 QPointF(x0 + lado * 0.42, y + lado * 0.82), QPointF(x0 + lado * 0.85, y + lado * 0.18))
         self._desenhar_texto(
             pintor, x0 + lado + 4 * self._zoom, y + lado / 2, "Gravar na tabela", "white",
-            round(8 * self._zoom), ancora="w", largura=larg_tela - (lado + 16 * self._zoom))
+            round(10 * self._zoom), ancora="w", largura=larg_tela - (lado + 16 * self._zoom))
 
     def _retangulo_checkbox_gravar(self, no):
         """Retângulo (screen-space) do checkbox "Gravar" pra hit-test (ver
@@ -1699,9 +1747,16 @@ class TelaConstrutorVariaveis(TelaBase):
         espessura_borda = max(0.5, self._espessura_borda_no_efetiva(no) * self._zoom)
 
         cor = _cor_no(no)
+        # Corpo neutro e cabeçalho por tipo, como nos editores de fluxo.
+        pintor.setPen(Qt.PenStyle.NoPen)
+        pintor.setBrush(QColor(0,0,0,45))
+        pintor.drawRoundedRect(QRectF(tx+3,ty+4,larg_tela,alt_tela),raio_canto,raio_canto)
         pintor.setPen(QPen(cor_borda_no, espessura_borda))
-        pintor.setBrush(QColor(cor))
+        pintor.setBrush(QColor("#e8edf2"))
         pintor.drawRoundedRect(QRectF(tx, ty, larg_tela, alt_tela), raio_canto, raio_canto)
+        pintor.setPen(Qt.PenStyle.NoPen)
+        pintor.setBrush(QColor(cor).darker(140))
+        pintor.drawRoundedRect(QRectF(tx,ty,larg_tela,min(alt_tela,ALTURA_TITULO_MODELO*self._zoom)),raio_canto,raio_canto)
 
         if no_id in self._selecionados:
             pintor.setPen(QPen(QColor(COR_SELECAO), 3))
@@ -1723,7 +1778,7 @@ class TelaConstrutorVariaveis(TelaBase):
                 6 * self._zoom, 6 * self._zoom)
             self._desenhar_texto(
                 pintor, tx + 9 * self._zoom, ty + 12 * self._zoom, nome_personalizado, "white",
-                round(8 * self._zoom), negrito=True, ancora="w",
+                round(10 * self._zoom), negrito=True, ancora="w",
                 largura=larg_tela - 54 * self._zoom)
             deslocamento = 18 * self._zoom
         else:
@@ -1744,8 +1799,8 @@ class TelaConstrutorVariaveis(TelaBase):
             self._desenhar_campo_nome(
                 pintor, no, tx, ty + deslocamento, larg_tela, cor_borda_no, rotulo_tipo, valores, linhas_extra)
 
-        tamanho_pino = round(8 * self._zoom)
-        rotulos_saida = _ROTULOS_SAIDA.get(no["tipo"])
+        tamanho_pino = round(10 * self._zoom)
+        rotulos_saida = [s["rotulo"] for s in saidas_tabuas(no)] if no["tipo"] == "tabuas" else _ROTULOS_SAIDA.get(no["tipo"])
         for i in range(_n_saidas(no)):
             sx, sy = self._mundo_para_tela(*self._posicao_pino_saida(no_id, i))
             pintor.setPen(QPen(cor_borda_no, espessura_borda))
@@ -1753,7 +1808,7 @@ class TelaConstrutorVariaveis(TelaBase):
             pintor.drawEllipse(QPointF(sx, sy), raio, raio)
             if rotulos_saida:
                 self._desenhar_texto(
-                    pintor, sx - raio - 4, sy, rotulos_saida[i], "black", tamanho_pino, ancora="e", largura=80)
+                    pintor, sx - raio - 4, sy, rotulos_saida[i], "black", tamanho_pino, ancora="e", largura=120*self._zoom)
 
         if no["tipo"] in ("modelo", "distribuicao", "vpl_sortimento", "recuperacao_weibull"):
             for i, nome_var in enumerate(no["variaveis"]):
@@ -1849,12 +1904,21 @@ class TelaConstrutorVariaveis(TelaBase):
             self._desenhar_texto(
                 pintor, ex + raio + 4, ey, "multiplicador (opcional)", "black", tamanho_pino, ancora="w")
 
+        elif no['tipo']=='tabuas' and no.get('versao_producao')==4:
+            for i,rotulo in enumerate(('Perfil taper','Vol. disponível','Árvores')):
+                ex,ey=self._mundo_para_tela(*self._posicao_pino_entrada(no_id,i))
+                ligado=any(c['destino']==no_id and c['entrada_idx']==i for c in self.conexoes)
+                pintor.setPen(QPen(cor_borda_no,espessura_borda))
+                pintor.setBrush(QColor('#a58ad6' if i==0 else '#63b5b2') if ligado else QColor(COR_PINO_LIVRE))
+                pintor.drawEllipse(QPointF(ex,ey),raio,raio)
+                self._desenhar_texto(pintor,ex+raio+4,ey,rotulo,'#202b37',tamanho_pino,ancora='w',largura=115*self._zoom)
+
         elif no["tipo"] in (
-                "rendimento_sortimento", "receita_sortimento", "vet_sortimento", "afilamento"):
+                "rendimento_sortimento", "receita_sortimento", "vet_sortimento", "afilamento", "tabuas"):
             rotulo_entrada = {
                 "rendimento_sortimento": "volume (classe)",
                 "receita_sortimento": "vtcc (classe)",
-                "vet_sortimento": "vpl (classe)", "afilamento": "H (Ht, classe)",
+                "vet_sortimento": "vpl (classe)", "afilamento": "Ht (m)", "tabuas": "Modelo",
             }[no["tipo"]]
             ex, ey = self._mundo_para_tela(*self._posicao_pino_entrada(no_id, 0))
             ligado = any(c["destino"] == no_id and c["entrada_idx"] == 0 for c in self.conexoes)
@@ -2150,6 +2214,10 @@ class TelaConstrutorVariaveis(TelaBase):
                 _, destino_id, idx = item
                 if destino_id != origem_id:
                     no_destino = self.nos[destino_id]
+                    eh_modelo = self.nos[origem_id]['tipo']=='afilamento' and origem_saida_idx==2
+                    if eh_modelo != (no_destino['tipo']=='tabuas' and idx==0):
+                        QMessageBox.warning(self,'Ligação','A saída Modelo do Taper deve ser ligada à entrada do nó Tábuas.')
+                        self._pino_origem=None;self._fio_temp_destino=None;self._redesenhar();return
                     if no_destino["tipo"] == "saida":
                         if idx == len(no_destino["entradas"]):
                             no_destino["entradas"].append({"operador": "+"})
@@ -2180,7 +2248,8 @@ class TelaConstrutorVariaveis(TelaBase):
             # _combinar_em_nova_saida).
             if item is not None and item[0] == "no":
                 destino_id = item[1]
-                if destino_id != origem_id and self.nos[destino_id]["tipo"] in ("coluna", "modelo"):
+                if (destino_id != origem_id and self.nos[destino_id]["tipo"] in ("coluna", "modelo")
+                        and not (self.nos[origem_id]['tipo']=='afilamento' and origem_saida_idx==2)):
                     self._pino_origem = None
                     self._fio_temp_destino = None
                     mx, my = self._tela_para_mundo(x, y)
@@ -2205,6 +2274,8 @@ class TelaConstrutorVariaveis(TelaBase):
 
         if no["tipo"] == "afilamento":
             self._configurar_nomes_afilamento(no_id)
+        elif no['tipo'] == 'tabuas':
+            self._configurar_tabuas(no_id)
         elif no["tipo"] == "recuperacao_weibull":
             self._configurar_nomes_recuperacao_weibull(no_id)
         elif no["tipo"] in (
@@ -2278,7 +2349,7 @@ class TelaConstrutorVariaveis(TelaBase):
             if no["tipo"] in (
                     "calculo", "distribuicao", "acumulado", "receita_sortimento",
                     "rendimento_sortimento", "vpl_sortimento", "vet_sortimento",
-                    "recuperacao_weibull", "custo_colheita"):
+                    "recuperacao_weibull", "custo_colheita", "tabuas"):
                 return
             if no["tipo"] == "saida":
                 if indice >= len(no["entradas"]):
@@ -2375,7 +2446,12 @@ class TelaConstrutorVariaveis(TelaBase):
                 rotulo_eventos = " (todos)"
             menu.addAction(
                 f"Configurar eventos...{rotulo_eventos}", lambda: self._configurar_eventos_no(no_id))
+        if no['tipo']=='tabuas':
+            menu.addAction('Configurar classes de tábua e saídas...',lambda:self._configurar_tabuas(no_id))
+            marca='✓ ' if no.get('gravar',True) else ''
+            menu.addAction(f'{marca}Gravar na tabela ao salvar',lambda:self._alternar_gravar(no_id))
         if no["tipo"] == "afilamento":
+            menu.addAction('Configurar dummies e produtos...',lambda:self._configurar_dummies_taper(no_id))
             menu.addAction(
                 "Configurar saídas (nomes)...", lambda: self._configurar_nomes_afilamento(no_id))
             marca = "✓ " if no.get("gravar", True) else ""
@@ -3168,13 +3244,15 @@ class TelaConstrutorVariaveis(TelaBase):
     def _refrescar_modelos_dos_nos(self):
         por_nome = {g["nome"]: g for g in self._modelos_disponiveis}
         for no in self.nos.values():
-            if no["tipo"] != "modelo":
+            if no["tipo"] not in ("modelo","afilamento"):
                 continue
             self._migrar_no_modelo_legado(no)
             atual = por_nome.get(no.get("nome"))
             if atual is not None:
                 no["modelo_ids"] = list(atual["ids"])
                 no["variantes"] = [dict(v) for v in atual["variantes"]]
+                if no['tipo'] == 'afilamento':
+                    no['variaveis'] = list(atual['variaveis'])
                 no["rotulo"] = _rotulo_modelo(atual["nome"], atual["variantes"])
 
     # ---------------- salvar construtor (persiste + aplica na hora) ----------------

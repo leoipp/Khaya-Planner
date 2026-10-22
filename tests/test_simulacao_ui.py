@@ -189,6 +189,75 @@ class SimulacaoUI(unittest.TestCase):
         conn.close()
         self.assertEqual(tuple(linha), (None, 1, None, 2))
 
+    def test_grade_inclui_com_e_sem_manejo_sem_duplicar_ausencia(self):
+        self.tela.combo_modo_simulacao.setCurrentIndex(2)
+        for chave, check in self.tela.checks_manejos_grade.items():
+            check.setChecked(chave in ('desbaste_1', 'corte_raso'))
+        self.tela.checks_sem_manejo_grade['raleio'].setChecked(True)
+        self.tela.checks_sem_manejo_grade['desbaste_1'].setChecked(True)
+        self.tela.checks_sem_manejo_grade['corte_raso'].setChecked(True)
+        for prefixo, minimo, maximo, passo in [('desbaste_1', '4', '6', '2'), ('corte_raso', '15', '15', '1')]:
+            for parte, valor in [('min', minimo), ('max', maximo), ('passo', passo)]:
+                getattr(self.tela, f'entry_idade_{parte}_{prefixo}').setText(valor)
+        self.tela._mapa_intensidade_desbaste_1 = {'20%': .2, '30%': .3}
+        for parte, escolhido in [('min', '20%'), ('max', '30%')]:
+            combo = getattr(self.tela, f'combo_intensidade_{parte}_desbaste_1')
+            combo.clear();combo.addItems(['20%', '30%']);combo.setCurrentText(escolhido)
+        with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Yes), patch.object(QMessageBox, 'warning') as aviso:
+            self.tela._gerar_grade_cenarios()
+            aviso.assert_not_called()
+        conn = conectar()
+        try:
+            linhas = [tuple(r) for r in conn.execute('SELECT idade_raleio, intensidade_raleio, idade_desbaste_1, intensidade_desbaste_1, idade_corte_raso FROM simulacao_cenarios')]
+        finally:conn.close()
+        self.assertEqual(len(linhas), 10)
+        self.assertEqual(len(set(linhas)), 10)
+        self.assertTrue(all(r[:2] == (None, 0.) for r in linhas))
+        self.assertEqual(sum(r[2] is None for r in linhas), 2)
+        self.assertIn((None, 0., None, 0., 15), linhas)
+        self.assertIn((None, 0., None, 0., None), linhas)
+        self.assertIn((None, 0., 6, .3, 15), linhas)
+
+    def test_exportar_excel_em_multiplos_inclui_todos_os_cenarios(self):
+        import pandas as pd
+        from PySide6.QtWidgets import QFileDialog
+        conn = conectar()
+        try:
+            conn.execute(f'CREATE TABLE "{simulacao.TABELA_LOTE_POPULACAO}" (id INTEGER, cenario_id INTEGER, volume REAL)')
+            conn.execute(f'CREATE TABLE "{simulacao.TABELA_LOTE_VOLUME_SORTIMENTO}" (id INTEGER, cenario_id INTEGER, volume REAL)')
+            for i in range(1, 4):
+                conn.execute("INSERT INTO simulacao_cenarios(id,nome,idade_corte_raso,status) VALUES(?,?,?,?)", (i, f'Manual {i}', 14+i, 'Gerado' if i < 3 else 'Pendente'))
+                conn.execute(f'INSERT INTO "{simulacao.TABELA_LOTE_POPULACAO}" VALUES(?,?,?)', (1, i, i*100.))
+                conn.execute(f'INSERT INTO "{simulacao.TABELA_LOTE_VOLUME_SORTIMENTO}" VALUES(?,?,?)', (1, i, i*80.))
+            conn.commit()
+        finally:conn.close()
+        for modo, quantidade in [(1, 2), (2, 3)]:
+            if quantidade == 3:
+                conn = conectar()
+                try:conn.execute("UPDATE simulacao_cenarios SET status='Gerado' WHERE id=3");conn.commit()
+                finally:conn.close()
+            self.tela.combo_modo_simulacao.setCurrentIndex(modo)
+            destino = Path(self.temp.name, f'exportacao_{modo}.xlsx')
+            with patch.object(QFileDialog, 'getSaveFileName', return_value=(str(destino), '')), \
+                 patch.object(QMessageBox, 'information'), patch.object(QMessageBox, 'warning') as aviso, \
+                 patch.object(QMessageBox, 'critical') as erro:
+                self.tela.exportar_excel()
+                aviso.assert_not_called();erro.assert_not_called()
+            with pd.ExcelFile(destino) as livro:
+                for aba, fator in [('Simulação', 100.), ('Volume por Sortimento', 80.)]:
+                    df = pd.read_excel(livro, sheet_name=aba)
+                    self.assertEqual(df['cenario'].tolist(), [f'Manual {i}' for i in range(1, quantidade+1)])
+                    self.assertEqual(df['volume'].tolist(), [i*fator for i in range(1, quantidade+1)])
+                    self.assertEqual(df['idade_corte_raso'].tolist(), [14+i for i in range(1, quantidade+1)])
+            self.assertIn('todos os cenários', self.tela.botao_exportar.text())
+        self.tela.combo_modo_simulacao.setCurrentIndex(0)
+        self.assertIn('cenário ativo', self.tela.botao_exportar.text())
+        with patch.object(self.tela, 'exportar_todos_cenarios') as todos, \
+             patch.object(self.tela, '_carregar_dados_geracao', return_value=(None, None)) as ativo, \
+             patch.object(QMessageBox, 'warning'):
+            self.tela.exportar_excel()
+            todos.assert_not_called();ativo.assert_called_once()
+
     def test_formularios_cabem_nas_larguras_e_temas(self):
         anterior = self.app.styleSheet()
         try:

@@ -16,10 +16,10 @@ ASSUNTOS = {
     'weibull_ifc': 'distribuição diamétrica ajuste parcela inventário',
     'construtor_variaveis': 'grafo nós fórmulas cálculos indicadores',
     'simulacao': 'manejo raleio desbaste corte cenários grade população',
-    'toragem': 'taper afilamento árvore perfil ponta fina toretes',
-    'desdobro': 'madeira tábuas serraria cerne alburno rendimento',
+    'toragem': 'taper afilamento árvore perfil ponta fina toretes desdobro madeira tábuas serraria cerne alburno rendimento',
     'ingressos_curvas': 'idade ingresso curvas distribuição MIP ITD',
     'resumos_cenarios': 'junção agrupamento resumo indicadores pivô',
+    'explorador_dados': 'SQL tabelas consulta Excel exportar dados gráficos',
     'planejamento': 'otimização demanda produção VPL CPLEX solver',
     'configuracoes': 'importação dados base inventário parâmetros CPLEX manutenção',
 }

@@ -8,16 +8,18 @@ from ..core.db import conectar
 from ..theme import icones, qss, tokens
 from ..widgets.cabecalho_tela import CabecalhoTela
 from ..widgets.cartao import Cartao
+from ..widgets.classes_tabuas import CadastroClassesTabuas
 from .base import TelaBase
 from .configuracoes import TelaConfiguracoes, _formatar_numero
 
 
 class TelaSortimentos(TelaBase):
+    _mostrar_preco_serrada = False
+    _mostrar_rendimento_sortimento = False
     _linha_campo = staticmethod(TelaConfiguracoes._linha_campo)
     _campo_empilhado = staticmethod(TelaConfiguracoes._campo_empilhado)
     _montar_secao_sortimentos = TelaConfiguracoes._montar_secao_sortimentos
     _montar_secao_dimensoes_tora = TelaConfiguracoes._montar_secao_dimensoes_tora
-    _carregar_sortimentos = TelaConfiguracoes._carregar_sortimentos
     _ao_selecionar_sortimento = TelaConfiguracoes._ao_selecionar_sortimento
     _coletar_dados_sortimento = TelaConfiguracoes._coletar_dados_sortimento
     _adicionar_sortimento = TelaConfiguracoes._adicionar_sortimento
@@ -35,6 +37,7 @@ class TelaSortimentos(TelaBase):
         raiz.addWidget(CabecalhoTela("Sortimentos", "Defina as classes comerciais, os preços e as dimensões dos toretes."))
 
         abas = QTabWidget()
+        self.abas = abas
         abas.setDocumentMode(True)
         abas.tabBar().setDrawBase(False)
         raiz.addWidget(abas, 1)
@@ -45,6 +48,8 @@ class TelaSortimentos(TelaBase):
             layout.setContentsMargins(0, 12, 0, 0)
         abas.addTab(pagina_classes, 'Classes comerciais')
         abas.addTab(pagina_dimensoes, 'Dimensões dos toretes')
+        self.classes_tabuas = CadastroClassesTabuas()
+        abas.addTab(self.classes_tabuas, 'Classes de tábua')
         cartao_sortimentos = Cartao("Sortimentos (classificação por diâmetro)")
         layout_classes.addWidget(cartao_sortimentos, 1)
         self._montar_secao_sortimentos(cartao_sortimentos.corpo)
@@ -68,15 +73,20 @@ class TelaSortimentos(TelaBase):
 
         self.recarregar_lista()
 
+    def _carregar_sortimentos(self):
+        TelaConfiguracoes._carregar_sortimentos(self)
+
     def novo_registro(self):
         self._limpar_form_sortimento()
         self.entry_comprimento_tora.clear()
         self.entry_diametro_minimo_tora.clear()
         self.checkbox_usar_tabela_afilamento.setChecked(False)
+        self.classes_tabuas.limpar()
 
     def recarregar_lista(self):
         self.novo_registro()
         self._carregar_sortimentos()
+        self.classes_tabuas.recarregar()
         try:
             conn = conectar()
         except RuntimeError:

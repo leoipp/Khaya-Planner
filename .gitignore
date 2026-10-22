@@ -10,4 +10,5 @@ __pycache__/
 # artefatos locais de desenvolvimento e execução
 .taylor_staging/
 .ui_previews/
+temp/
 *.log

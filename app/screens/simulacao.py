@@ -24,7 +24,7 @@ import math
 import os
 import shutil
 import sqlite3
-import tempfile
+from ..core.temporarios import pasta_temporaria
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from datetime import datetime
@@ -461,7 +461,14 @@ class _ThreadGerarLote(QThread):
                 # este mesmo t_pronto mesmo tendo terminado em instantes
                 # ligeiramente diferentes — aproximação aceitável pra uma
                 # métrica diagnóstica, não pra cobrança de SLA.
-                prontos, _ = wait(list(em_voo.keys()), return_when=FIRST_COMPLETED)
+                prontos, _ = wait(list(em_voo.keys()), timeout=2., return_when=FIRST_COMPLETED)
+                if not prontos:
+                    decorrido=int(time.perf_counter()-min(item[3] for item in em_voo.values()))
+                    self.progresso.emit(gerados+len(com_erro),total,
+                        f"Em processamento: {len(em_voo)} cenário(s); "
+                        f"{gerados+len(com_erro)}/{total} concluído(s). "
+                        f"Cálculo mais antigo: {decorrido//60}min {decorrido%60:02d}s")
+                    continue
                 t_pronto = time.perf_counter()
                 for future in prontos:
                     cenario, configuracao, sufixo, t_submit = em_voo.pop(future)
@@ -732,7 +739,7 @@ def _gravar_log_construtores(tempos_construtores, perfil_caso=None, resumo_tempo
     TelaSimulacao._finalizar_geracao_lote). Acrescenta (não sobrescreve)
     um bloco com timestamp a cada lote, pra manter histórico entre
     rodadas. Sem projeto aberto (não deveria acontecer aqui, mas por
-    segurança) cai pra %TEMP%. Devolve o Path gravado, ou None se a
+    segurança) cai pra temp local do simulador. Devolve o Path gravado, ou None se a
     escrita falhar (erro de disco não deve travar o diálogo de
     conclusão).
 
@@ -743,7 +750,7 @@ def _gravar_log_construtores(tempos_construtores, perfil_caso=None, resumo_tempo
     inteiro pra diagnóstico, mesmo quando nenhum construtor individual
     passou de 1s num cenário (`tempos_construtores` vazio)."""
     caminho_proj = projeto.caminho_projeto()
-    pasta = caminho_proj.parent if caminho_proj is not None else Path(tempfile.gettempdir())
+    pasta = caminho_proj.parent if caminho_proj is not None else pasta_temporaria()
     nome_base = caminho_proj.stem if caminho_proj is not None else "khaya_planner"
     caminho_log = pasta / f"{nome_base}_construtores.log"
     try:
@@ -777,7 +784,7 @@ def _validar_combinacao_manejos(idades):
 
 # Guarda de espaço em disco do lote de "Múltiplos cenários"/"Grade
 # automática" (ver _ThreadGerarLote.run) — cada cenário grava sua própria
-# tabela larga no arquivo de trabalho (%TEMP%\khaya_planner_v2), sem
+# tabela larga no arquivo de trabalho (temp local do simulador\khaya_planner_v2), sem
 # limite nenhum; num lote grande (centenas/milhares) isso pode encher o
 # disco de verdade, e sem essa guarda o SQLite abortava no meio de um
 # cenário com "database or disk is full" (erro cru do driver, sem
@@ -871,7 +878,18 @@ def _escrever_paginas_excel(writer, paginas, nome_base):
     paginar; truncado em 31 caracteres (limite de nome de aba do .xlsx)."""
     for i, dfs in enumerate(paginas):
         nome_aba = nome_base if len(paginas) == 1 else f"{nome_base} {i + 1}"
-        pd.concat(dfs, ignore_index=True).to_excel(writer, sheet_name=nome_aba[:31], index=False)
+        # Grava os cenários em sequência, sem concatenar a página inteira.
+        # A união explícita mantém inclusive colunas totalmente vazias e
+        # schemas diferentes, sem inferência de dtype entre cenários.
+        colunas = list(dict.fromkeys(coluna for df in dfs for coluna in df.columns))
+        pd.DataFrame(columns=colunas).to_excel(writer, sheet_name=nome_aba[:31], index=False)
+        linha = 1
+        for df in dfs:
+            if df.empty:
+                continue
+            df.reindex(columns=colunas).to_excel(
+                writer, sheet_name=nome_aba[:31], index=False, header=False, startrow=linha)
+            linha += len(df)
 
 
 class TelaSimulacao(TelaBase):
@@ -1233,6 +1251,8 @@ class TelaSimulacao(TelaBase):
         # chamada em self.gerar() depois de reaplicar os construtores
         # salvos (é quando essas colunas por classe existem).
         self.tabela_volume_classes = QTableWidget(0, 2)
+        # A célula deve acomodar a fonte e o padding do controle no tema atual.
+        self.tabela_volume_classes.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.tabela_volume_classes.setHorizontalHeaderLabels(["Variável", "Agregação"])
         self.tabela_volume_classes.verticalHeader().setVisible(False)
         self.tabela_volume_classes.horizontalHeader().setSectionResizeMode(
@@ -1422,6 +1442,11 @@ class TelaSimulacao(TelaBase):
         self.label_dica_modo.setText(dicas[indice])
         self.cartao_cenarios.setVisible(True)
         self.botao_gerar.setVisible(not marcado)
+        if hasattr(self, "botao_exportar"):
+            self.botao_exportar.setText("Excel: todos os cenários…" if marcado else "Excel: cenário ativo…")
+            self.botao_exportar.setToolTip(
+                "Exporta todos os cenários com status Gerado, identificados pela coluna cenario; independe da seleção da tabela."
+                if marcado else "Exporta somente a simulação ativa. Para exportar o conjunto, use o modo Múltiplos cenários.")
         self._atualizar_layout_responsivo(forcar=True)
 
     def resizeEvent(self, evento):
@@ -1528,7 +1553,7 @@ class TelaSimulacao(TelaBase):
         self.botao_consulta_mapa = QPushButton("Tabela e filtros...")
         self.botao_consulta_mapa.clicked.connect(self._abrir_consulta_mapa)
         linha_botoes.addWidget(self.botao_consulta_mapa)
-        self.botao_exportar = QPushButton("Exportar Excel…")
+        self.botao_exportar = QPushButton("Excel: cenário ativo…")
         icones.aplicar_icone(self.botao_exportar, "exportar")
         self.botao_exportar.clicked.connect(self.exportar_excel)
         linha_botoes.addWidget(self.botao_exportar)
@@ -2025,7 +2050,8 @@ class TelaSimulacao(TelaBase):
         layout_grade.setContentsMargins(0, 0, 0, 8)
         layout_grade.setSpacing(12)
         self._dica_layout(layout_grade,
-            "Selecione os manejos e informe início, fim e passo das idades. Desmarque todos para criar um cenário sem manejo.")
+            "Informe as faixas dos manejos. Marque ‘Incluir sem’ para gerar também alternativas sem aquele manejo. "
+            "Desmarque ‘Realizar manejo’ para omiti-lo em toda a grade. O passo das intensidades vem de Configurações.")
 
         grade = QGridLayout()
         grade.setHorizontalSpacing(12)
@@ -2052,6 +2078,15 @@ class TelaSimulacao(TelaBase):
             self.entry_idade_passo_corte_raso = self._linha_grade_idade(grade, 4, "Corte Raso")
         layout_grade.addLayout(grade)
         self.checks_manejos_grade = self._montar_opcoes_manejos(grade, 1, automatico=True)
+        grade.addWidget(QLabel("Incluir sem"), 0, 6)
+        self.checks_sem_manejo_grade = {}
+        for linha, chave in enumerate(("raleio", "desbaste_1", "desbaste_2", "corte_raso"), start=1):
+            check = QCheckBox("Também sem")
+            check.setToolTip("Gera alternativas com este manejo nas faixas informadas e também sem ele. "
+                             "Se ‘Realizar manejo’ estiver desmarcado, todas as alternativas já serão sem ele.")
+            self.checks_sem_manejo_grade[chave] = check
+            grade.addWidget(check, linha, 6)
+            self.checks_manejos_grade[chave].toggled.connect(check.setEnabled)
 
         linha_botao = QHBoxLayout()
         botao_gerar_grade = QPushButton("Gerar grade de cenários")
@@ -2786,6 +2821,9 @@ class TelaSimulacao(TelaBase):
         self.grafico_resultado.desenhar(df, por_classe)
 
     def exportar_excel(self):
+        if self.checkbox_multiplos_cenarios.isChecked() or self.checkbox_grade_automatica.isChecked():
+            self.exportar_todos_cenarios()
+            return
         try:
             conn = conectar()
         except RuntimeError as e:
@@ -3443,7 +3481,19 @@ class TelaSimulacao(TelaBase):
         (junto com o INSERT seguinte, no caso da grade)."""
         if not ids:
             return
-        marcadores = ", ".join("?" for _ in ids)
+        # Mantém a transação do chamador e funciona também no SQLite com
+        # limite histórico de 999 parâmetros (Python 3.10).
+        limite = 900
+        if hasattr(conn, "getlimit"):
+            limite = min(limite, conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER))
+
+        def apagar(tabela, coluna):
+            for inicio in range(0, len(ids), limite):
+                lote = ids[inicio:inicio + limite]
+                marcadores = ", ".join("?" for _ in lote)
+                conn.execute(
+                    f'DELETE FROM "{tabela}" WHERE "{coluna}" IN ({marcadores})', lote)
+
         # Ordem defensiva (não há FK de verdade entre as tabelas do lote,
         # ao contrário das antigas sufixadas — ver core/simulacao.py:
         # _garantir_tabelas_lote): mesmo assim apaga a distribuição antes
@@ -3456,12 +3506,10 @@ class TelaSimulacao(TelaBase):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tabela,)
             ).fetchone()
             if existe is not None:
-                conn.execute(f'DELETE FROM "{tabela}" WHERE cenario_id IN ({marcadores})', ids)
+                apagar(tabela, "cenario_id")
         if simulacao._existe_tabela_cenarios_parquet(conn):
-            conn.execute(
-                f'DELETE FROM "{simulacao.TABELA_CENARIOS_PARQUET}" '
-                f'WHERE cenario_id IN ({marcadores})', ids)
-        conn.execute(f"DELETE FROM simulacao_cenarios WHERE id IN ({marcadores})", ids)
+            apagar(simulacao.TABELA_CENARIOS_PARQUET, "cenario_id")
+        apagar("simulacao_cenarios", "id")
 
     def _ler_faixa_idade(self, entry_min, entry_max, entry_passo, rotulo, opcional=False):
         """Lê+valida os 3 campos de faixa de idade (mín/máx/passo) do
@@ -3553,11 +3601,25 @@ class TelaSimulacao(TelaBase):
             QMessageBox.warning(self, "Simulação", str(e))
             return
 
+        # Idade e intensidade formam uma única opção. A ausência deve entrar
+        # uma única vez e sempre com intensidade zero, sem cruzar None com
+        # cada intensidade da faixa.
+        def opcoes(chave, idades, intensidades):
+            pares = list(dict.fromkeys((idade, intensidade if idade is not None else 0.0)
+                         for idade, intensidade in itertools.product(idades, intensidades)))
+            if self.checks_sem_manejo_grade[chave].isChecked() and (None, 0.0) not in pares:
+                pares.insert(0, (None, 0.0))
+            return pares
+
+        opcoes_raleio = opcoes("raleio", idades_raleio, intensidades_raleio)
+        opcoes_d1 = opcoes("desbaste_1", idades_desbaste_1, intensidades_desbaste_1)
+        opcoes_d2 = opcoes("desbaste_2", idades_desbaste_2, intensidades_desbaste_2)
+        if self.checks_sem_manejo_grade["corte_raso"].isChecked() and None not in idades_corte_raso:
+            idades_corte_raso = [None, *idades_corte_raso]
         # Mantém ausentes os manejos omitidos e valida os selecionados.
         combinacoes = []
-        for idade_raleio, int_raleio, idade_d1, int_d1, idade_d2, int_d2, idade_corte in itertools.product(
-                idades_raleio, intensidades_raleio, idades_desbaste_1, intensidades_desbaste_1,
-                idades_desbaste_2, intensidades_desbaste_2, idades_corte_raso):
+        for (idade_raleio, int_raleio), (idade_d1, int_d1), (idade_d2, int_d2), idade_corte in itertools.product(
+                opcoes_raleio, opcoes_d1, opcoes_d2, idades_corte_raso):
             preenchidas = _validar_combinacao_manejos({
                 "raleio": idade_raleio, "desbaste_1": idade_d1, "desbaste_2": idade_d2,
                 "corte_raso": idade_corte,
@@ -4053,8 +4115,8 @@ class TelaSimulacao(TelaBase):
         thread.start()
 
     def _ao_progredir_geracao_lote(self, numero, total, nome):
-        self._definir_status(
-            self.label_status_cenarios, f"Gerando cenário {numero}/{total}: {nome}...", "neutro")
+        texto = nome if nome.startswith("Em processamento:") else f"Gerando cenário {numero}/{total}: {nome}..."
+        self._definir_status(self.label_status_cenarios,texto,"neutro")
         self.progressbar_cenarios.setRange(0, total)
         self.progressbar_cenarios.setValue(numero)
 
